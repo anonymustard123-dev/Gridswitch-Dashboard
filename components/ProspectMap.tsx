@@ -76,6 +76,5 @@ export default function ProspectMap({ prospects, onSelect, selected }: { prospec
 
   useEffect(() => { if (selected?.longitude != null && selected.latitude != null) map.current?.flyTo({ center: [selected.longitude, selected.latitude], zoom: 13 }); }, [selected]);
   if (!process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN) return <div className="h-full grid place-items-center text-center p-8 text-slate-500">Mapbox token not configured.<br /><small>Add NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN to show the interactive map.</small></div>;
-  if (!valid.length) return <div className="h-full grid place-items-center text-slate-500">No filtered facilities have valid coordinates.</div>;
-  return <div ref={node} className="h-full w-full" />;
+  return <div className="relative h-full w-full"><div ref={node} className="h-full w-full" />{!valid.length && <div className="absolute inset-0 grid place-items-center bg-white/90 text-slate-500 pointer-events-none">No filtered facilities have valid coordinates.</div>}</div>;
 }
