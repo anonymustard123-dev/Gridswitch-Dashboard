@@ -1,0 +1,3 @@
+export const ENERGY_FACTORS: Record<string, number> = { data_center:10,cold_storage:9,food_processing:8.5,manufacturing:8,hospital:7,university:6,hotel:5,shopping_mall:4.5,distribution_center:4,warehouse:3,office:2,unknown:4 };
+export function sizeScore(sqft?: number | null) { if (!sqft) return 0; if(sqft < 50000)return 10; if(sqft<100000)return 25; if(sqft<250000)return 45; if(sqft<500000)return 65; if(sqft<1000000)return 80; return 95; }
+export function opportunityScore(type?: string | null, sqft?: number | null) { return Math.max(0,Math.min(100,Math.round(sizeScore(sqft)*.65+(ENERGY_FACTORS[type || 'unknown'] ?? ENERGY_FACTORS.unknown)*10*.35))); }

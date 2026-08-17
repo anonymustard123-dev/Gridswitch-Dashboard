@@ -1,0 +1,3 @@
+/** Edit this mapping as provider taxonomy evolves. */
+export const CATEGORY_TYPE_RULES: [RegExp,string][] = [[/data.?center/i,'data_center'],[/cold.?stor/i,'cold_storage'],[/food.*process/i,'food_processing'],[/manufactur/i,'manufacturing'],[/hospital|medical center/i,'hospital'],[/universit|college/i,'university'],[/hotel/i,'hotel'],[/shopping mall/i,'shopping_mall'],[/distribution/i,'distribution_center'],[/warehouse/i,'warehouse'],[/office/i,'office']];
+export function normalizeFacilityType(category?: string | null) { return CATEGORY_TYPE_RULES.find(([r])=>r.test(category || ''))?.[1] ?? 'unknown'; }

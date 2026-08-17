@@ -1,0 +1,2 @@
+import { NextResponse } from 'next/server'; import { mockProspects } from '@/lib/providers/mock'; import { adminDb } from '@/lib/supabase';
+export async function GET(){const db=adminDb();if(!db)return NextResponse.json({prospects:mockProspects,demo:true});const {data,error}=await db.from('prospects').select('*').order('opportunity_score',{ascending:false});if(error)return NextResponse.json({error:'Unable to load prospects.'},{status:500});return NextResponse.json({prospects:data,demo:false});}

@@ -1,0 +1,3 @@
+import { NextResponse } from 'next/server'; import { z } from 'zod';
+const schema=z.object({ids:z.array(z.string().uuid()).min(1).max(25)});
+export async function POST(req:Request){const parsed=schema.safeParse(await req.json());if(!parsed.success)return NextResponse.json({error:'Choose up to 25 prospects.'},{status:400});const origin=new URL(req.url).origin;const results=[];for(const id of parsed.data.ids){const r=await fetch(`${origin}/api/prospects/${id}/enrich`,{method:'POST'});results.push({id,success:r.ok});await new Promise(resolve=>setTimeout(resolve,300));}return NextResponse.json({completed:results.filter(x=>x.success).length,failed:results.filter(x=>!x.success).length,results});}
