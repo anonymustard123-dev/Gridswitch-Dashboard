@@ -32,7 +32,8 @@ export default function ProspectMap({ prospects, onSelect, selected }: { prospec
     instance.addControl(new mapboxgl.NavigationControl());
     instance.addControl(new mapboxgl.FullscreenControl());
     instance.on('load', () => {
-      instance.addSource('facilities', { type: 'geojson', data: featureCollection(prospectsRef.current), cluster: true, clusterMaxZoom: 14, clusterRadius: 45 });
+      const initialData = featureCollection(prospectsRef.current);
+      instance.addSource('facilities', { type: 'geojson', data: initialData, cluster: true, clusterMaxZoom: 14, clusterRadius: 45 });
       instance.addLayer({ id: 'clusters', type: 'circle', source: 'facilities', filter: ['has', 'point_count'], paint: { 'circle-color': '#0f766e', 'circle-radius': ['step', ['get', 'point_count'], 18, 10, 23, 30, 28] } });
       instance.addLayer({ id: 'cluster-count', type: 'symbol', source: 'facilities', filter: ['has', 'point_count'], layout: { 'text-field': '{point_count_abbreviated}', 'text-size': 12 }, paint: { 'text-color': '#fff' } });
       instance.addLayer({ id: 'points', type: 'circle', source: 'facilities', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': 7, 'circle-color': ['step', ['get', 'score'], '#94a3b8', 45, '#f59e0b', 70, '#16a34a'], 'circle-stroke-width': 1, 'circle-stroke-color': '#fff' } });
@@ -49,6 +50,14 @@ export default function ProspectMap({ prospects, onSelect, selected }: { prospec
         const prospect = prospectsRef.current.find((item) => item.id === id);
         if (prospect) onSelect(prospect);
       });
+      // The first data load can finish before the style is ready. Re-apply it after layers exist.
+      (instance.getSource('facilities') as mapboxgl.GeoJSONSource).setData(initialData);
+      const initialProspects = prospectsRef.current.filter((prospect) => prospect.latitude != null && prospect.longitude != null);
+      if (initialProspects.length) {
+        const bounds = new mapboxgl.LngLatBounds();
+        initialProspects.forEach((prospect) => bounds.extend([prospect.longitude!, prospect.latitude!]));
+        instance.fitBounds(bounds, { padding: 40, maxZoom: 11, duration: 0 });
+      }
     });
     return () => { instance.remove(); map.current = null; };
   }, [onSelect]);
