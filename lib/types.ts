@@ -10,7 +10,7 @@ export interface Prospect {
   epa_frs_id?: string | null; epa_facility_name?: string | null; epa_programs?: string[] | null; epa_ghgrp_match?: boolean | null; epa_match_confidence?: string | null;
   pa_dep_facility_id?: string | null; pa_dep_facility_name?: string | null; pa_dep_facility_type?: string | null; pa_dep_match_confidence?: string | null;
   building_footprint_sqft?: number | null; building_footprint_source?: string | null; footprint_match_confidence?: string | null;
-  evidence_score?: number | null; evidence_tier?: 'needs_review' | 'site_signal' | 'priority_outreach' | 'high_evidence' | null; public_records_verified_at?: string | null;
+  evidence_score?: number | null; evidence_tier?: 'needs_review' | 'site_signal' | 'priority_outreach' | 'high_evidence' | null; public_records_verified_at?: string | null; public_records_raw?: unknown;
   enrichment_status: EnrichmentStatus; match_confidence?: string | null; prospect_status: ProspectStatus; notes?: string | null;
   created_at?: string; updated_at?: string; dataforseo_raw?: unknown; regrid_raw?: unknown;
   ai_research_status?: 'pending' | 'researching' | 'complete' | 'failed' | null; ai_research?: AiFacilityResearch | null; ai_researched_at?: string | null; ai_model?: string | null; ai_error?: string | null;

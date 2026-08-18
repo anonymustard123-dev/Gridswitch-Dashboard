@@ -1,7 +1,7 @@
 import type { Prospect } from '@/lib/types';
 
 type FrsFacility = { RegistryId?: string; FacilityName?: string; CityName?: string; Latitude83?: string; Longitude83?: string; ProgramFacilities?: { ProgramSystemAcronym?: string; ProgramSystemId?: string; ProgramFacilityName?: string }[] };
-type DepFeature = { attributes?: Record<string, unknown> };
+type DepFeature = { attributes?: Record<string, unknown>; geometry?: { x?: number; y?: number } };
 
 const normalize = (value?: string | null) => (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const tokens = (value?: string | null) => new Set(normalize(value).split(' ').filter((token) => token.length > 2));
@@ -12,6 +12,18 @@ const similarity = (left?: string | null, right?: string | null) => {
   return overlap / Math.max(a.size, b.size);
 };
 const timeout = (url: string) => fetch(url, { signal: AbortSignal.timeout(15_000) });
+const distanceKm = (aLat?: number | null, aLon?: number | null, bLat?: number | null, bLon?: number | null) => {
+  if ([aLat, aLon, bLat, bLon].some((value) => value === null || value === undefined || Number.isNaN(Number(value)))) return null;
+  const radians = (value: number) => (value * Math.PI) / 180;
+  const dLat = radians(Number(bLat) - Number(aLat));
+  const dLon = radians(Number(bLon) - Number(aLon));
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(radians(Number(aLat))) * Math.cos(radians(Number(bLat))) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+};
+const closeToSite = (prospect: Prospect, latitude?: number | null, longitude?: number | null) => {
+  const distance = distanceKm(prospect.latitude, prospect.longitude, latitude, longitude);
+  return distance === null || distance <= 5;
+};
 
 export interface PublicRecordVerification {
   epa_frs_id: string | null;
@@ -35,16 +47,22 @@ export async function verifyPublicRecords(prospect: Prospect): Promise<PublicRec
 
   const epaUrl = new URL('https://ofmpub.epa.gov/frs_public2/frs_rest_services.get_facilities');
   epaUrl.search = new URLSearchParams({ state_abbr: 'PA', facility_name: name, ...(prospect.city ? { city_name: prospect.city } : {}), program_output: 'yes', output: 'JSON' }).toString();
+  const epaFallbackUrl = new URL('https://ofmpub.epa.gov/frs_public2/frs_rest_services.get_facilities');
+  epaFallbackUrl.search = new URLSearchParams({ state_abbr: 'PA', facility_name: name.split(/\s+/)[0], program_output: 'yes', output: 'JSON' }).toString();
   const depToken = name.split(/\s+/).find((token) => token.length >= 4) ?? name;
   const depUrl = new URL('https://gis.dep.pa.gov/depgisprd/rest/services/emappa/eFactsQueryExternal/MapServer/0/query');
-  depUrl.search = new URLSearchParams({ f: 'json', where: `UPPER(PRIMARY_FACILITY_NAME) LIKE '%${depToken.replace(/'/g, "''").toUpperCase()}%'`, outFields: 'PRIMARY_FACILITY_NAME,PRIMARY_FACILITY_ID,PRIMARY_FACILITY_TYPE,PRIMARY_FACILITY_KIND,SITE_NAME,ORGANIZATION_NAME', returnGeometry: 'false', resultRecordCount: '10' }).toString();
+  depUrl.search = new URLSearchParams({ f: 'json', where: `PRIMARY_FACILITY_NAME LIKE '%${depToken.replace(/'/g, "''").toUpperCase()}%'`, outFields: 'PRIMARY_FACILITY_NAME,PRIMARY_FACILITY_ID,PRIMARY_FACILITY_TYPE,PRIMARY_FACILITY_KIND,SITE_NAME,CLIENT_NAME', returnGeometry: 'true', resultRecordCount: '100' }).toString();
 
   const [epaResult, depResult] = await Promise.allSettled([timeout(epaUrl.toString()), timeout(depUrl.toString())]);
   if (epaResult.status === 'fulfilled' && epaResult.value.ok) {
     const raw = await epaResult.value.json().catch(() => null);
     base.raw.epa = raw;
-    const candidates: FrsFacility[] = raw?.Results?.FRSFacility ?? [];
-    const best = candidates.map((candidate) => ({ candidate, score: similarity(name, candidate.FacilityName) + (normalize(prospect.city) === normalize(candidate.CityName) ? .2 : 0) })).sort((a, b) => b.score - a.score)[0];
+    let candidates: FrsFacility[] = raw?.Results?.FRSFacility ?? [];
+    if (!candidates.length) {
+      const fallback = await timeout(epaFallbackUrl.toString()).then((response) => response.ok ? response.json() : null).catch(() => null);
+      candidates = fallback?.Results?.FRSFacility ?? [];
+    }
+    const best = candidates.map((candidate) => ({ candidate, score: similarity(name, candidate.FacilityName) + (normalize(prospect.city) === normalize(candidate.CityName) ? .2 : 0) })).filter(({ candidate }) => closeToSite(prospect, Number(candidate.Latitude83), Number(candidate.Longitude83))).sort((a, b) => b.score - a.score)[0];
     if (best && confidence(best.score)) {
       base.epa_frs_id = best.candidate.RegistryId ?? null;
       base.epa_facility_name = best.candidate.FacilityName ?? null;
@@ -57,7 +75,7 @@ export async function verifyPublicRecords(prospect: Prospect): Promise<PublicRec
     const raw = await depResult.value.json().catch(() => null);
     base.raw.pa_dep = raw;
     const candidates: DepFeature[] = raw?.features ?? [];
-    const best = candidates.map((feature) => ({ feature, score: Math.max(similarity(name, String(feature.attributes?.PRIMARY_FACILITY_NAME ?? '')), similarity(name, String(feature.attributes?.SITE_NAME ?? '')), similarity(name, String(feature.attributes?.ORGANIZATION_NAME ?? ''))) })).sort((a, b) => b.score - a.score)[0];
+    const best = candidates.map((feature) => ({ feature, score: Math.max(similarity(name, String(feature.attributes?.PRIMARY_FACILITY_NAME ?? '')), similarity(name, String(feature.attributes?.SITE_NAME ?? '')), similarity(name, String(feature.attributes?.CLIENT_NAME ?? ''))) })).filter(({ feature }) => closeToSite(prospect, feature.geometry?.y, feature.geometry?.x)).sort((a, b) => b.score - a.score)[0];
     if (best && confidence(best.score)) {
       const fields = best.feature.attributes ?? {};
       base.pa_dep_facility_id = String(fields.PRIMARY_FACILITY_ID ?? '') || null;

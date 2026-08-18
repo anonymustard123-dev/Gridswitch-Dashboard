@@ -12,6 +12,15 @@ import type { AiFacilityResearch, Prospect } from '@/lib/types';
 const label = (value: string | null | undefined) =>
   value?.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) || 'Unknown';
 const signalFor = (prospect: Prospect) => prospectSignals(prospect);
+const publicCheckNeedsRetry = (prospect: Prospect) => {
+  const raw = prospect.public_records_raw as { pa_dep?: { error?: unknown } } | null | undefined;
+  return !prospect.public_records_verified_at || Boolean(raw?.pa_dep?.error);
+};
+const shortText = (value: string, words: number) => {
+  const clean = value.replace(/\s*\(\[[^\]]+\]\([^)]*\)\)/g, '').replace(/\s+/g, ' ').trim();
+  const compact = clean.split(' ').slice(0, words).join(' ');
+  return clean.split(' ').length > words ? `${compact}…` : compact;
+};
 
 const tierStyle: Record<ProspectSignalTier, string> = {
   top_priority: 'bg-emerald-100 text-emerald-800',
@@ -37,13 +46,13 @@ function AiResearch({ research }: { research: AiFacilityResearch }) {
           {research.grid_switch_fit === 'unknown' ? 'More research needed' : `${research.grid_switch_fit} priority`}
         </span>
       </div>
-      <p className="mt-3 text-sm">{research.facility_summary}</p>
-      {facts.length > 0 && <ul className="mt-3 space-y-1 text-sm">{facts.map((fact) => <li key={fact}>• {fact}</li>)}</ul>}
+      <p className="mt-3 text-sm">{shortText(research.facility_summary, 42)}</p>
+      {facts.length > 0 && <ul className="mt-3 space-y-1 text-sm">{facts.map((fact) => <li key={fact}>• {shortText(fact, 22)}</li>)}</ul>}
       <div className="mt-4 rounded bg-slate-900 p-3 text-sm text-white">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-300">Next move</div>
-        <p className="mt-1 font-semibold">{research.recommended_action_reason}</p>
+        <p className="mt-1 font-semibold">{shortText(research.recommended_action_reason, 28)}</p>
       </div>
-      {research.outreach_angle && <p className="mt-3 text-sm"><b>Talk track:</b> {research.outreach_angle}</p>}
+      {research.outreach_angle && <p className="mt-3 text-sm"><b>Talk track:</b> {shortText(research.outreach_angle, 28)}</p>}
       {research.sources?.length > 0 && (
         <a className="mt-3 inline-block text-xs text-teal-700 underline" href={research.sources[0].url} target="_blank" rel="noreferrer">
           Open research source
@@ -60,7 +69,7 @@ export default function Dashboard() {
   const [city, setCity] = useState('');
   const [type, setType] = useState('');
   const [tier, setTier] = useState('');
-  const [showScreening, setShowScreening] = useState(false);
+  const [showScreening, setShowScreening] = useState(true);
   const [demo, setDemo] = useState(false);
   const [searching, setSearching] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -98,7 +107,7 @@ export default function Dashboard() {
 
   async function runPublicSourceChecks(force = false) {
     const candidates = all
-      .filter((item) => force || !item.public_records_verified_at)
+      .filter((item) => force || publicCheckNeedsRetry(item))
       .sort((a, b) => signalFor(b).score - signalFor(a).score);
     if (!candidates.length) {
       setNotice('Public-source checks are current for the imported sites.');
@@ -133,7 +142,7 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    if (!initialSourceCheckStarted && !demo && all.some((item) => !item.public_records_verified_at)) {
+    if (!initialSourceCheckStarted && !demo && all.some(publicCheckNeedsRetry)) {
       setInitialSourceCheckStarted(true);
       void runPublicSourceChecks();
     }
@@ -207,8 +216,8 @@ export default function Dashboard() {
           <input className="control min-w-48 flex-1" placeholder="Search facility or address" value={query} onChange={(event) => setQuery(event.target.value)} />
           <select className="control" value={city} onChange={(event) => setCity(event.target.value)}><option value="">All cities</option>{[...new Set(all.map((item) => item.city).filter(Boolean))].map((item) => <option key={item}>{item}</option>)}</select>
           <select className="control" value={type} onChange={(event) => setType(event.target.value)}><option value="">All facility types</option>{[...new Set(all.map((item) => item.facility_type).filter(Boolean))].map((item) => <option key={item} value={item!}>{label(item)}</option>)}</select>
-          <select className="control" value={tier} onChange={(event) => setTier(event.target.value)}><option value="">Priority sites</option>{Object.entries(prospectSignalLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
-          <label className="flex items-center gap-2 px-2 text-sm text-slate-600"><input type="checkbox" checked={showScreening} onChange={(event) => setShowScreening(event.target.checked)} /> Show screening list</label>
+          <select className="control" value={tier} onChange={(event) => setTier(event.target.value)}><option value="">All opportunities</option>{Object.entries(prospectSignalLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
+          <label className="flex items-center gap-2 px-2 text-sm text-slate-600"><input type="checkbox" checked={showScreening} onChange={(event) => setShowScreening(event.target.checked)} /> Include potential sites</label>
           <button className="control text-teal-800" disabled={verifying} onClick={() => runPublicSourceChecks(true)}>{verifying ? 'Checking public sources...' : 'Refresh public sources'}</button>
           <button className="control text-teal-800" disabled={researchingIds.length > 0} onClick={researchTop3}>{researchingIds.length ? `Researching ${researchingIds.length}...` : 'Add AI briefs to top 3'}</button>
           <button className="rounded bg-teal-700 px-4 text-sm text-white" disabled={searching} onClick={findProspects}>{searching ? 'Searching...' : 'Find Prospects'}</button>
@@ -244,7 +253,7 @@ export default function Dashboard() {
             <h3 className="font-semibold">Why this site is a priority</h3>
             <p className="mt-2 text-sm text-slate-700">{selectedSignals.summary}</p>
             {selectedSignals.evidenceFacts.length > 0 && <ul className="mt-3 space-y-2 text-sm">{selectedSignals.evidenceFacts.map((fact) => <li key={fact}>• {fact}</li>)}</ul>}
-            {!selectedSignals.hasPublicEvidence && <p className="mt-3 text-sm text-slate-600">Run the public-source refresh to confirm EPA and Pennsylvania DEP operating-site records.</p>}
+            {!selectedSignals.hasPublicEvidence && !selectedSignals.publicRecordsChecked && <p className="mt-3 text-sm text-slate-600">Public-source check pending.</p>}
           </section>
           {selectedResearchError && <div role="alert" className="mt-5 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800"><b>AI brief did not run.</b><p className="mt-1">{selectedResearchError}</p></div>}
           {selected.ai_research && <AiResearch research={selected.ai_research} />}

@@ -10,6 +10,7 @@ export interface ProspectSignals {
   sourceNames: string[];
   summary: string;
   hasPublicEvidence: boolean;
+  publicRecordsChecked: boolean;
 }
 
 const clean = (value: string) =>
@@ -27,6 +28,7 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
   const depMatch = Boolean(prospect.pa_dep_facility_id);
   const ghgrp = Boolean(prospect.epa_ghgrp_match);
   const hasPublicEvidence = epaMatch || depMatch;
+  const publicRecordsChecked = Boolean(prospect.public_records_verified_at);
 
   const evidenceFacts = [
     prioritySector
@@ -40,8 +42,8 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
   const sourceNames = [
     prioritySector ? 'DataForSEO business category' : null,
     ghgrp ? 'EPA GHGRP' : null,
-    epaMatch ? 'EPA FRS' : null,
-    depMatch ? 'PA DEP eFACTS' : null,
+    epaMatch ? 'EPA FRS match' : publicRecordsChecked ? 'EPA FRS checked' : null,
+    depMatch ? 'PA DEP eFACTS match' : publicRecordsChecked ? 'PA DEP eFACTS checked' : null,
   ].filter((source): source is string => Boolean(source));
 
   const score = Math.min(
@@ -64,10 +66,14 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
       : tier === 'priority_site'
         ? hasPublicEvidence
           ? 'Priority industrial site based on facility type and available operating-site evidence.'
-          : 'Likely high-energy industrial site based on its facility type; public operating-site records are pending.'
-        : 'Screening candidate; it needs public-record evidence before outreach priority.';
+          : publicRecordsChecked
+            ? 'Likely high-energy industrial site based on its facility type; EPA and DEP checks found no exact regulatory-site match.'
+            : 'Likely high-energy industrial site based on its facility type; public operating-site records are pending.'
+        : publicRecordsChecked
+          ? 'Potential industrial site; public-source checks found no exact regulatory-site match.'
+          : 'Potential industrial site; public operating-site records are pending.';
 
-  return { score, tier, evidenceFacts, sourceNames, summary, hasPublicEvidence };
+  return { score, tier, evidenceFacts, sourceNames, summary, hasPublicEvidence, publicRecordsChecked };
 }
 
 export const prospectSignalLabels: Record<ProspectSignalTier, string> = {
