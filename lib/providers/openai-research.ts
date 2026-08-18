@@ -142,27 +142,50 @@ function responseText(body: unknown) {
   return '';
 }
 
-function cleanResearch(research: AiFacilityResearch): AiFacilityResearch {
+export function normalizeResearch(research: AiFacilityResearch): AiFacilityResearch {
   const sourceUrls = new Set(research.sources.map((source) => source.url));
+  const absenceLanguage = /\b(no (?:public|direct|site-specific|documented|source)|not found|could not (?:find|verify)|does not (?:show|establish|document)|unknown)\b/i;
   const cleanSignal = (signal: AiFacilityResearch['qualification']['load_intensity']) => ({
     ...signal,
     source_url: signal.source_url && sourceUrls.has(signal.source_url) ? signal.source_url : null,
     rating:
-      signal.source_url && sourceUrls.has(signal.source_url)
+      absenceLanguage.test(signal.evidence)
+        ? 'unknown' as const
+        : signal.source_url && sourceUrls.has(signal.source_url)
         ? signal.rating
         : signal.rating === 'unknown'
           ? 'unknown' as const
           : 'possible' as const,
   });
+  const qualification = {
+    load_intensity: cleanSignal(research.qualification.load_intensity),
+    uptime_criticality: cleanSignal(research.qualification.uptime_criticality),
+    resilience_need: cleanSignal(research.qualification.resilience_need),
+    expansion_or_capex: cleanSignal(research.qualification.expansion_or_capex),
+    onsite_energy_assets: cleanSignal(research.qualification.onsite_energy_assets),
+  };
+  const load = qualification.load_intensity.rating;
+  const continuity = [qualification.uptime_criticality.rating, qualification.resilience_need.rating];
+  const gridSwitchFit: AiFacilityResearch['grid_switch_fit'] =
+    load === 'strong' && continuity.includes('strong')
+      ? 'high'
+      : (load === 'strong' && continuity.includes('possible')) ||
+          (load === 'possible' && continuity.includes('strong'))
+        ? 'moderate'
+        : load === 'weak'
+          ? 'low'
+          : 'unknown';
+  const recommendedAction: AiFacilityResearch['recommended_action'] =
+    gridSwitchFit === 'high' || gridSwitchFit === 'moderate'
+      ? 'prioritize_outreach'
+      : gridSwitchFit === 'low'
+        ? 'deprioritize'
+        : 'research_more';
   return {
     ...research,
-    qualification: {
-      load_intensity: cleanSignal(research.qualification.load_intensity),
-      uptime_criticality: cleanSignal(research.qualification.uptime_criticality),
-      resilience_need: cleanSignal(research.qualification.resilience_need),
-      expansion_or_capex: cleanSignal(research.qualification.expansion_or_capex),
-      onsite_energy_assets: cleanSignal(research.qualification.onsite_energy_assets),
-    },
+    grid_switch_fit: gridSwitchFit,
+    qualification,
+    recommended_action: recommendedAction,
     operating_evidence: research.operating_evidence.filter((claim) =>
       sourceUrls.has(claim.source_url),
     ),
@@ -234,5 +257,5 @@ Never estimate electricity consumption, peak load, tariff savings, or project ec
   }
   const parsed = researchSchema.safeParse(decoded);
   if (!parsed.success) throw new Error('OpenAI returned an invalid research result.');
-  return { research: cleanResearch(parsed.data), model };
+  return { research: normalizeResearch(parsed.data), model };
 }
