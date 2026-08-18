@@ -24,7 +24,9 @@ Import the GitHub repository into Vercel. Add the environment variables listed i
 
 Add `DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD` to activate the DataForSEO Business Listings provider. Add `REGRID_API_TOKEN` to activate parcel enrichment. Their values stay exclusively in server route handlers. Add the Supabase Data API URL and secret key to persist live imports. Without those credentials, the route handlers remain safely in demo mode.
 
-Add `OPENAI_API_KEY` to enable cited facility web research. `OPENAI_MODEL` defaults to `gpt-5.4-mini`. Run `supabase/migrations/202608180002_add_ai_research.sql` before the first AI research request. The key is used only by the server route handler and is never returned to the browser.
+Add `OPENAI_API_KEY` to enable cited facility web research. `OPENAI_MODEL` defaults to `gpt-5.4-mini`. The key is used only by the server route handler and is never returned to the browser. The app can store research in the existing provider JSON immediately; `supabase/migrations/202608180002_add_ai_research.sql` remains recommended for dedicated reporting columns but is no longer required for the button to work.
+
+The prospect funnel has three deliberately separate stages: DataForSEO discovers a physical facility, deterministic facility-type priors identify categories worth researching, and cited web research evaluates public evidence for load intensity, uptime criticality, resilience need, expansion timing, and existing energy assets. Actual interval load, tariff economics, outage cost, site control, and budget must still be confirmed during discovery; the dashboard never presents directory completeness as proof of microgrid fit.
 
 ## Design notes
 

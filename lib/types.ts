@@ -19,13 +19,29 @@ export interface SearchInput { centerLatitude:number; centerLongitude:number; ra
 
 export interface AiResearchSource { title: string; url: string; }
 export interface AiResearchClaim { claim: string; evidence_type: 'operations' | 'scale' | 'expansion' | 'resilience' | 'energy' | 'other'; confidence: 'high' | 'medium' | 'low'; source_url: string; }
+export interface AiQualificationSignal {
+  rating: 'strong' | 'possible' | 'weak' | 'unknown';
+  evidence: string;
+  source_url: string | null;
+}
 export interface AiFacilityResearch {
   facility_summary: string;
   grid_switch_fit: 'high' | 'moderate' | 'low' | 'unknown';
   fit_reasons: string[];
+  qualification: {
+    load_intensity: AiQualificationSignal;
+    uptime_criticality: AiQualificationSignal;
+    resilience_need: AiQualificationSignal;
+    expansion_or_capex: AiQualificationSignal;
+    onsite_energy_assets: AiQualificationSignal;
+  };
   operating_evidence: AiResearchClaim[];
+  recommended_action: 'prioritize_outreach' | 'research_more' | 'deprioritize';
+  recommended_action_reason: string;
   outreach_angle: string;
+  target_roles: string[];
   discovery_questions: string[];
+  disqualifiers: string[];
   unknowns: string[];
   sources: AiResearchSource[];
 }
