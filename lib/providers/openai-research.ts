@@ -158,6 +158,11 @@ export async function researchProspect(
   ]
     .filter(Boolean)
     .join(' | ');
+  const knownPublicSignals = [
+    prospect.epa_ghgrp_match ? 'EPA Greenhouse Gas Reporting Program facility' : null,
+    prospect.epa_frs_id ? 'EPA Facility Registry operating-site match' : null,
+    prospect.pa_dep_facility_id ? 'Pennsylvania DEP regulated-facility match' : null,
+  ].filter(Boolean).join('; ') || 'No EPA or Pennsylvania DEP match has been confirmed yet.';
 
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
@@ -171,7 +176,9 @@ export async function researchProspect(
       tools: [{ type: 'web_search', search_context_size: 'medium' }],
       input: `Research this exact physical facility for GridSwitch microgrid prospecting: ${identity}.
 
-The business-directory record is discovery input, not proof of microgrid fit. Use public web sources, prioritizing the facility/company website, government and permit records, utility or regulatory documents, SEC filings, and reputable business news. Confirm each fact applies to this location rather than merely the parent company.
+Known public-record signals: ${knownPublicSignals}
+
+Return a punchy opportunity brief for a business-development rep, not a due-diligence memo. The business-directory record is discovery input, not proof of microgrid fit. Use public web sources, prioritizing the facility/company website, government and permit records, utility or regulatory documents, SEC filings, and reputable business news. Confirm each fact applies to this location rather than merely the parent company.
 
 Evaluate only these microgrid-relevant questions:
 1. Is there evidence of a large or continuous electrical-load process at this site?
@@ -180,7 +187,9 @@ Evaluate only these microgrid-relevant questions:
 4. Is the site expanding or making capital investments that create a buying window?
 5. Are existing generators, solar, storage, CHP, switchgear, or energy projects documented?
 
-Never estimate electricity consumption, peak load, tariff savings, or project economics. A warehouse, truck lot, or 24/7 listing is not high fit without additional site-specific evidence. Use unknown when evidence is absent. Every non-unknown qualification signal and every operating_evidence claim must include a supporting URL. Recommend a concrete next action and the facility roles to approach, but do not invent named contacts.`,
+Never estimate electricity consumption, peak load, tariff savings, or project economics. A warehouse, truck lot, or 24/7 listing is not high fit without additional site-specific evidence. Use unknown when evidence is absent. Every non-unknown qualification signal and every operating_evidence claim must include a supporting URL. Recommend a concrete next action and the facility roles to approach, but do not invent named contacts.
+
+Keep the returned fields concise: facility_summary under 35 words, fit_reasons limited to the 3 strongest facts, recommended_action_reason under 25 words, outreach_angle under 30 words, and discovery_questions limited to 3. Do not repeat caveats or explain the research method.`,
       text: {
         format: {
           type: 'json_schema',

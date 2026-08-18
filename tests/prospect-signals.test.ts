@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { prospectSignals } from '@/lib/prospect-signals';
 
 describe('DataForSEO prospect signals', () => {
-  it('treats manufacturing as a priority category without claiming qualification', () => {
+  it('treats manufacturing as a priority industrial site without overstating the directory data', () => {
     const signals = prospectSignals({ id: 'p', provider: 'dataforseo', name: 'Example', facility_type: 'manufacturing', source_category: 'Manufacturer', phone: '555', website: 'https://example.com', enrichment_status: 'pending', prospect_status: 'new', dataforseo_raw: { additional_categories: ['Warehouse'], people_also_search: [{}, {}], place_topics: { trucks: 4, 'live load': 3 }, work_time: { work_hours: { timetable: { monday: [{ open: { hour: 0, minute: 0 }, close: { hour: 24, minute: 0 } }], tuesday: [{ open: { hour: 0, minute: 0 }, close: { hour: 24, minute: 0 } }], wednesday: [{ open: { hour: 0, minute: 0 }, close: { hour: 24, minute: 0 } }], thursday: [{ open: { hour: 0, minute: 0 }, close: { hour: 24, minute: 0 } }], friday: [{ open: { hour: 0, minute: 0 }, close: { hour: 24, minute: 0 } }] } } } } });
-    expect(signals.tier).toBe('priority_category');
-    expect(signals.relevanceReasons).toContain('Manufacturing is a higher-load-intensity facility category');
-    expect(signals.directoryFacts).toContain('Business profile lists 24/7 hours');
+    expect(signals.tier).toBe('priority_site');
+    expect(signals.evidenceFacts).toContain('Manufacturing operation — a high-energy facility category');
+    expect(signals.hasPublicEvidence).toBe(false);
   });
 
-  it('does not turn a 24/7 warehouse or truck lot into a high-priority prospect', () => {
+  it('keeps a warehouse without public evidence in the screening list', () => {
     const signals = prospectSignals({
       id: 'warehouse',
       provider: 'dataforseo',
@@ -29,32 +29,26 @@ describe('DataForSEO prospect signals', () => {
       },
     });
 
-    expect(signals.tier).toBe('possible_fit');
+    expect(signals.tier).toBe('screening');
     expect(signals.score).toBeLessThan(50);
-    expect(signals.relevanceReasons).toContain('Listed 24/7; uptime and outage exposure may matter');
+    expect(signals.hasPublicEvidence).toBe(false);
   });
 
-  it('ignores null timetable entries instead of crashing the dashboard', () => {
+  it('promotes a corroborated industrial facility to the top priority tier', () => {
     const signals = prospectSignals({
       id: 'p-null-hours',
       provider: 'dataforseo',
-      name: 'Null Hours Facility',
-      facility_type: 'warehouse',
+      name: 'Verified Plant',
+      facility_type: 'manufacturing',
       enrichment_status: 'pending',
       prospect_status: 'new',
-      dataforseo_raw: {
-        work_time: {
-          work_hours: {
-            timetable: {
-              monday: [null],
-              tuesday: [{ open: { hour: 8, minute: 0 }, close: { hour: 17, minute: 0 } }],
-            },
-          },
-        },
-      },
+      epa_frs_id: '110001',
+      pa_dep_facility_id: 'PA-100',
+      epa_ghgrp_match: true,
     });
 
-    expect(signals.is24Hour).toBe(false);
-    expect(signals.directoryFacts).not.toContain('Business profile lists 24/7 hours');
+    expect(signals.tier).toBe('top_priority');
+    expect(signals.evidenceFacts).toContain('EPA Greenhouse Gas Reporting Program facility');
+    expect(signals.hasPublicEvidence).toBe(true);
   });
 });
