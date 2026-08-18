@@ -2,88 +2,32 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Prospect } from '@/lib/types';
+import { evidenceScore, evidenceTier, evidenceTierLabel, type EvidenceTier } from '@/lib/evidence';
 import ProspectMap from '@/components/ProspectMap';
 
 const label = (value: string | null | undefined) => value?.replaceAll('_', ' ') || 'Unknown';
-const formatSqft = (value: number | null | undefined) => value ? `${Math.round(value).toLocaleString()} sq ft` : 'Unknown';
+const formatSqft = (value: number | null | undefined) => value ? `${Math.round(value).toLocaleString()} sq ft` : 'Not yet available';
+const recordEvidence = (prospect: Prospect) => ({ facilityType: prospect.facility_type, epaFrsId: prospect.epa_frs_id, epaGhgrpMatch: prospect.epa_ghgrp_match, paDepFacilityId: prospect.pa_dep_facility_id, buildingFootprintSqft: prospect.building_footprint_sqft });
+const scoreFor = (prospect: Prospect) => prospect.evidence_score || evidenceScore(recordEvidence(prospect));
+const tierFor = (prospect: Prospect) => scoreFor(prospect) === 0 ? 'needs_review' : prospect.evidence_tier && prospect.evidence_score ? prospect.evidence_tier : evidenceTier(recordEvidence(prospect));
 
 export default function Dashboard() {
   const [all, setAll] = useState<Prospect[]>([]);
   const [selected, setSelected] = useState<Prospect | null>(null);
-  const [query, setQuery] = useState('');
-  const [city, setCity] = useState('');
-  const [type, setType] = useState('');
-  const [minimum, setMinimum] = useState(0);
-  const [status, setStatus] = useState('');
-  const [demo, setDemo] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [query, setQuery] = useState(''); const [city, setCity] = useState(''); const [type, setType] = useState(''); const [tier, setTier] = useState('');
+  const [demo, setDemo] = useState(false); const [searching, setSearching] = useState(false); const [verifying, setVerifying] = useState(false); const [notice, setNotice] = useState('');
 
-  const loadProspects = useCallback(async () => {
-    const response = await fetch('/api/prospects');
-    const payload = await response.json();
-    setAll(Array.isArray(payload.prospects) ? payload.prospects : []);
-    setDemo(Boolean(payload.demo));
-    if (payload.error) setNotice(payload.error);
-  }, []);
-
+  const loadProspects = useCallback(async () => { const response = await fetch('/api/prospects'); const payload = await response.json(); setAll(Array.isArray(payload.prospects) ? payload.prospects : []); setDemo(Boolean(payload.demo)); if (payload.error) setNotice(payload.error); }, []);
   useEffect(() => { void loadProspects(); }, [loadProspects]);
 
-  const list = useMemo(() => all.filter((prospect) => (
-    (!city || prospect.city === city) &&
-    (!type || prospect.facility_type === type) &&
-    (!status || prospect.enrichment_status === status) &&
-    (prospect.opportunity_score ?? 0) >= minimum &&
-    `${prospect.name} ${prospect.address}`.toLowerCase().includes(query.toLowerCase())
-  )).sort((a, b) => (b.opportunity_score ?? 0) - (a.opportunity_score ?? 0)), [all, city, type, status, minimum, query]);
+  const list = useMemo(() => all.filter((prospect) => (!city || prospect.city === city) && (!type || prospect.facility_type === type) && (!tier || tierFor(prospect) === tier) && `${prospect.name} ${prospect.address}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => scoreFor(b) - scoreFor(a) || (b.opportunity_score ?? 0) - (a.opportunity_score ?? 0)), [all, city, type, tier, query]);
+  const knownFootprint = list.reduce((sum, prospect) => sum + (prospect.building_footprint_sqft ?? 0), 0);
+  const recordLabel = (item: Prospect, matched: boolean) => matched ? 'Matched' : item.public_records_verified_at ? 'No match' : 'Not checked';
+  const metrics: [string, string | number][] = [['Listed facilities', list.length], ['Public-record verified', list.filter((item) => item.epa_frs_id || item.pa_dep_facility_id).length], ['Priority outreach', list.filter((item) => ['priority_outreach', 'high_evidence'].includes(tierFor(item))).length], ['Known footprint area', formatSqft(knownFootprint)]];
 
-  const totalSqft = list.reduce((sum, prospect) => sum + (prospect.building_sqft ?? 0), 0);
-  const metrics: [string, string | number][] = [
-    ['Total prospects', list.length], ['Enriched prospects', list.filter((item) => item.enrichment_status === 'complete').length],
-    ['High-opportunity', list.filter((item) => (item.opportunity_score ?? 0) >= 70).length], ['Known building area', formatSqft(totalSqft)],
-  ];
+  async function findProspects() { setSearching(true); try { const response = await fetch('/api/prospects/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ centerLatitude: 40.8, centerLongitude: -77.8, radiusKm: 300, state: 'Pennsylvania', categories: ['industrial', 'manufacturing', 'warehouse'], limit: 250 }) }); const result = await response.json(); if (!response.ok) { setNotice(result.error || 'Live search failed. Review Vercel logs for details.'); return; } setNotice(`Search complete: ${result.imported ?? 0} imported, ${result.skipped ?? 0} skipped, ${result.failed ?? 0} failed.`); await loadProspects(); } catch { setNotice('Unable to reach the prospect search service. Please try again.'); } finally { setSearching(false); } }
+  async function verifySelected() { if (!selected) return; setVerifying(true); try { const response = await fetch(`/api/prospects/${selected.id}/verify`, { method: 'POST' }); const result = await response.json(); if (!response.ok) { setNotice(result.error || 'Public-record verification failed.'); return; } setAll((items) => items.map((item) => item.id === result.prospect.id ? result.prospect : item)); setSelected(result.prospect); setNotice(`Public records checked for ${result.prospect.name}.`); } catch { setNotice('Unable to reach public-record verification.'); } finally { setVerifying(false); } }
+  async function verifyTop25() { const ids = list.filter((item) => !item.public_records_verified_at).slice(0, 25).map((item) => item.id); if (!ids.length) { setNotice('Every currently filtered facility has already been checked.'); return; } setVerifying(true); setNotice(`Checking public records for ${ids.length} facilities…`); try { const response = await fetch('/api/prospects/verify-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }); const result = await response.json(); setNotice(`Public-record check complete: ${result.completed ?? 0} checked, ${result.failed ?? 0} failed.`); await loadProspects(); } catch { setNotice('Unable to run public-record verification.'); } finally { setVerifying(false); } }
 
-  async function findProspects() {
-    setSearching(true);
-    try {
-      const response = await fetch('/api/prospects/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ centerLatitude: 40.8, centerLongitude: -77.8, radiusKm: 300, state: 'Pennsylvania', categories: ['industrial', 'manufacturing', 'warehouse'], limit: 250 }) });
-      const result = await response.json();
-      if (!response.ok) { setNotice(result.error || 'Live search failed. Review Vercel logs for details.'); return; }
-      setNotice(`Search complete: ${result.imported ?? 0} imported, ${result.skipped ?? 0} skipped, ${result.failed ?? 0} failed.`);
-      await loadProspects();
-    } catch { setNotice('Unable to reach the prospect search service. Please try again.'); } finally { setSearching(false); }
-  }
-
-  async function enrichSelected() {
-    if (!selected) return;
-    try {
-      const response = await fetch(`/api/prospects/${selected.id}/enrich`, { method: 'POST' });
-      const result = await response.json();
-      if (!response.ok) { setNotice(result.error || 'Property enrichment failed.'); return; }
-      setAll((items) => items.map((item) => item.id === result.prospect.id ? result.prospect : item));
-      setSelected(result.prospect);
-      setNotice(`Property enrichment complete for ${result.prospect.name}.`);
-    } catch { setNotice('Unable to reach the property enrichment service.'); }
-  }
-
-  return <main className="min-h-screen">
-    <nav className="bg-[#101d29] text-white px-6 py-4 flex justify-between items-center"><div><b className="tracking-wide text-lg">GRIDSWITCH</b><span className="ml-3 text-sm text-slate-300">Prospecting Dashboard</span></div>{demo && <span className="rounded-full bg-slate-700 px-3 py-1 text-xs">Demo Data</span>}</nav>
-    <div className="p-5 max-w-[1800px] mx-auto">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">{metrics.map(([title, value]) => <div className="card p-4" key={title}><div className="text-xs uppercase text-slate-500">{title}</div><div className="text-2xl font-bold mt-1">{value}</div></div>)}</div>
-      <div className="card p-3 flex gap-2 flex-wrap mb-4">
-        <input className="control flex-1 min-w-48" placeholder="Search facility or address" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <select className="control" value={city} onChange={(event) => setCity(event.target.value)}><option value="">All cities</option>{[...new Set(all.map((item) => item.city).filter(Boolean))].map((item) => <option key={item}>{item}</option>)}</select>
-        <select className="control" value={type} onChange={(event) => setType(event.target.value)}><option value="">All facility types</option>{[...new Set(all.map((item) => item.facility_type).filter(Boolean))].map((item) => <option key={item} value={item!}>{label(item)}</option>)}</select>
-        <select className="control" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Any enrichment</option><option>pending</option><option>partial</option><option>complete</option></select>
-        <select className="control" value={minimum} onChange={(event) => setMinimum(+event.target.value)}><option value="0">Any score</option><option value="45">45+</option><option value="70">70+</option></select>
-        <button className="bg-teal-700 text-white rounded px-4 text-sm" disabled={searching} onClick={findProspects}>{searching ? 'Searching…' : 'Find Prospects'}</button>
-      </div>
-      {notice && <p className="text-sm mb-3 text-teal-800">{notice}</p>}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(420px,1fr)_minmax(600px,1.2fr)] gap-4 h-[680px]">
-        <section className="card overflow-hidden min-h-96"><ProspectMap prospects={list} selected={selected} onSelect={setSelected} /></section>
-        <section className="card overflow-auto"><table className="w-full"><thead className="sticky top-0 bg-white"><tr>{['Score', 'Facility', 'Type', 'City', 'Building area', 'Acres', 'Enrichment', 'Status'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{list.map((prospect) => <tr className={`cursor-pointer hover:bg-slate-50 ${selected?.id === prospect.id ? 'bg-teal-50' : ''}`} key={prospect.id} onClick={() => setSelected(prospect)}><td><span className={`score ${(prospect.opportunity_score ?? 0) >= 70 ? 'score-high' : (prospect.opportunity_score ?? 0) >= 45 ? 'score-mid' : 'score-low'}`}>{prospect.opportunity_score}</span></td><td className="font-medium">{prospect.name}</td><td className="capitalize">{label(prospect.facility_type)}</td><td>{prospect.city}</td><td>{formatSqft(prospect.building_sqft)}</td><td>{prospect.parcel_acres ?? '—'}</td><td className="capitalize">{prospect.enrichment_status}</td><td className="capitalize">{prospect.prospect_status}</td></tr>)}</tbody></table></section>
-      </div>
-      {selected && <aside className="fixed right-0 top-0 h-full w-[390px] bg-white shadow-2xl p-6 overflow-auto z-10"><button className="float-right text-slate-500" onClick={() => setSelected(null)}>Close</button><h2 className="text-xl font-bold pr-12">{selected.name}</h2><p className="mt-2"><span className="score score-high">{selected.opportunity_score} Opportunity</span> <span className="capitalize text-slate-600">{label(selected.facility_type)}</span></p><p className="text-sm mt-4">{selected.address}, {selected.city}, {selected.state} {selected.postal_code}</p><dl className="grid grid-cols-2 gap-y-4 mt-6 text-sm">{[['Building area', formatSqft(selected.building_sqft)], ['Area source', selected.building_sqft_source || 'Unknown'], ['Parcel acres', selected.parcel_acres || 'Unknown'], ['Owner', selected.parcel_owner || 'Unknown'], ['Zoning', selected.zoning || 'Unknown'], ['Phone', selected.phone || 'Unknown'], ['Enrichment', selected.enrichment_status], ['Status', selected.prospect_status]].map(([title, value]) => <div key={String(title)}><dt className="text-slate-500">{title}</dt><dd className="font-medium capitalize">{value}</dd></div>)}</dl><p className="mt-5 text-xs text-slate-500">GridSwitch Opportunity Score is a preliminary heuristic based on facility type and known building area; it is not an electricity-use estimate.</p><div className="flex gap-2 mt-6"><button className="control" onClick={enrichSelected}>Enrich property</button><button className="control" onClick={() => navigator.clipboard.writeText(`${selected.address}, ${selected.city}, ${selected.state}`)}>Copy address</button>{selected.website && <a className="control" target="_blank" rel="noreferrer" href={selected.website}>Open website</a>}</div></aside>}
-    </div>
-  </main>;
+  return <main className="min-h-screen"><nav className="bg-[#101d29] text-white px-6 py-4 flex justify-between items-center"><div><b className="tracking-wide text-lg">GRIDSWITCH</b><span className="ml-3 text-sm text-slate-300">Facility Evidence Dashboard</span></div>{demo && <span className="rounded-full bg-slate-700 px-3 py-1 text-xs">Demo Data</span>}</nav><div className="p-5 max-w-[1800px] mx-auto"><div className="mb-4"><h1 className="text-xl font-bold">Prioritize facilities with evidence, not estimated electricity use</h1><p className="text-sm text-slate-600 mt-1">Discovery listings are checked against public EPA and Pennsylvania DEP facility records. Building footprints can be added separately; parcel data is optional.</p></div><div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">{metrics.map(([title, value]) => <div className="card p-4" key={title}><div className="text-xs uppercase text-slate-500">{title}</div><div className="text-2xl font-bold mt-1">{value}</div></div>)}</div><div className="card p-3 flex gap-2 flex-wrap mb-4"><input className="control flex-1 min-w-48" placeholder="Search facility or address" value={query} onChange={(event) => setQuery(event.target.value)} /><select className="control" value={city} onChange={(event) => setCity(event.target.value)}><option value="">All cities</option>{[...new Set(all.map((item) => item.city).filter(Boolean))].map((item) => <option key={item}>{item}</option>)}</select><select className="control" value={type} onChange={(event) => setType(event.target.value)}><option value="">All facility types</option>{[...new Set(all.map((item) => item.facility_type).filter(Boolean))].map((item) => <option key={item} value={item!}>{label(item)}</option>)}</select><select className="control" value={tier} onChange={(event) => setTier(event.target.value)}><option value="">All evidence tiers</option>{Object.entries(evidenceTierLabel).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select><button className="control text-teal-800" disabled={verifying} onClick={verifyTop25}>{verifying ? 'Checking…' : 'Verify top 25'}</button><button className="bg-teal-700 text-white rounded px-4 text-sm" disabled={searching} onClick={findProspects}>{searching ? 'Searching…' : 'Find Prospects'}</button></div>{notice && <p className="text-sm mb-3 text-teal-800">{notice}</p>}<div className="grid grid-cols-1 xl:grid-cols-[minmax(420px,1fr)_minmax(600px,1.2fr)] gap-4 h-[680px]"><section className="card overflow-hidden min-h-96"><ProspectMap prospects={list} selected={selected} onSelect={setSelected} /></section><section className="card overflow-auto"><table className="w-full"><thead className="sticky top-0 bg-white"><tr>{['Evidence', 'Facility', 'Type', 'City', 'EPA record', 'PA DEP record', 'Footprint', 'Status'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{list.map((prospect) => <tr className={`cursor-pointer hover:bg-slate-50 ${selected?.id === prospect.id ? 'bg-teal-50' : ''}`} key={prospect.id} onClick={() => setSelected(prospect)}><td><span className={`score ${scoreFor(prospect) >= 45 ? 'score-high' : scoreFor(prospect) >= 20 ? 'score-mid' : 'score-low'}`}>{evidenceTierLabel[tierFor(prospect) as EvidenceTier]}</span></td><td className="font-medium">{prospect.name}</td><td className="capitalize">{label(prospect.facility_type)}</td><td>{prospect.city}</td><td>{recordLabel(prospect, Boolean(prospect.epa_frs_id))}</td><td>{recordLabel(prospect, Boolean(prospect.pa_dep_facility_id))}</td><td>{formatSqft(prospect.building_footprint_sqft)}</td><td className="capitalize">{prospect.prospect_status}</td></tr>)}</tbody></table></section></div>{selected && <aside className="fixed right-0 top-0 h-full w-[420px] bg-white shadow-2xl p-6 overflow-auto z-10"><button className="float-right text-slate-500" onClick={() => setSelected(null)}>Close</button><h2 className="text-xl font-bold pr-12">{selected.name}</h2><p className="mt-2"><span className="score score-high">{evidenceTierLabel[tierFor(selected) as EvidenceTier]}</span> <span className="text-slate-600">Evidence score: {scoreFor(selected)}</span></p><p className="text-sm mt-4">{selected.address}, {selected.city}, {selected.state} {selected.postal_code}</p><section className="mt-6"><h3 className="font-semibold">Evidence signals</h3><dl className="grid grid-cols-2 gap-y-4 mt-3 text-sm"><div><dt className="text-slate-500">Discovery category</dt><dd className="font-medium capitalize">{label(selected.facility_type)}</dd></div><div><dt className="text-slate-500">Building footprint</dt><dd className="font-medium">{formatSqft(selected.building_footprint_sqft)}</dd></div><div><dt className="text-slate-500">EPA Facility Registry</dt><dd className="font-medium">{selected.epa_frs_id ? `${selected.epa_facility_name || 'Matched'} (${selected.epa_match_confidence})` : recordLabel(selected, false)}</dd></div><div><dt className="text-slate-500">EPA GHG reporting</dt><dd className="font-medium">{selected.epa_ghgrp_match ? 'Reported program match' : 'No matched record'}</dd></div><div><dt className="text-slate-500">PA DEP eFACTS</dt><dd className="font-medium">{selected.pa_dep_facility_id ? `${selected.pa_dep_facility_name || 'Matched'} (${selected.pa_dep_match_confidence})` : recordLabel(selected, false)}</dd></div><div><dt className="text-slate-500">PA DEP facility type</dt><dd className="font-medium">{selected.pa_dep_facility_type || 'Not available'}</dd></div></dl></section><section className="mt-6 rounded bg-slate-50 p-3 text-xs text-slate-600"><b>How to use this:</b> a match is evidence that a listed business corresponds to a public operating-site record. It is not an electricity-use estimate or project qualification. Regrid parcel data is intentionally not used in this evidence score.</section><div className="flex gap-2 mt-6 flex-wrap"><button className="control" disabled={verifying} onClick={verifySelected}>{verifying ? 'Checking…' : 'Verify public records'}</button><button className="control" onClick={() => navigator.clipboard.writeText(`${selected.address}, ${selected.city}, ${selected.state}`)}>Copy address</button>{selected.website && <a className="control" target="_blank" rel="noreferrer" href={selected.website}>Open website</a>}</div></aside>}</div></main>;
 }
