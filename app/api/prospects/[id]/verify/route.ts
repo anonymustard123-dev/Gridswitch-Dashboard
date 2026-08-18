@@ -3,6 +3,8 @@ import { adminDb } from '@/lib/supabase';
 import { evidenceScore, evidenceTier } from '@/lib/evidence';
 import { verifyPublicRecords } from '@/lib/providers/public-records';
 
+const migrationMessage = 'Public-record fields are not available yet. Run supabase/migrations/202608180001_add_public_evidence.sql in the Supabase SQL Editor, then try again.';
+
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const db = adminDb();
   if (!db) return NextResponse.json({ error: 'Public-record verification is unavailable until Supabase is configured.' }, { status: 503 });
@@ -18,6 +20,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ prospect: data });
   } catch (cause) {
     console.error('Public-record verification failed', cause instanceof Error ? cause.message : cause);
+    const message = cause instanceof Error ? cause.message : '';
+    if (/column|schema cache|epa_frs_id|evidence_score/i.test(message)) return NextResponse.json({ error: migrationMessage }, { status: 503 });
     return NextResponse.json({ error: 'Public-record verification could not be completed. Please try again.' }, { status: 502 });
   }
 }

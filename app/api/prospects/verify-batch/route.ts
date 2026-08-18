@@ -6,6 +6,7 @@ import { verifyPublicRecords } from '@/lib/providers/public-records';
 
 const input = z.object({ ids: z.array(z.string().uuid()).min(1).max(25) });
 const pause = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const migrationMessage = 'Public-record fields are not available yet. Run supabase/migrations/202608180001_add_public_evidence.sql in the Supabase SQL Editor, then try again.';
 
 export async function POST(request: Request) {
   const parsed = input.safeParse(await request.json());
@@ -23,7 +24,11 @@ export async function POST(request: Request) {
       const { error: updateError } = await db.from('prospects').update(update).eq('id', id);
       if (updateError) throw updateError;
       completed++;
-    } catch (cause) { failed++; errors.push(cause instanceof Error ? cause.message : 'Verification failed.'); }
+    } catch (cause) {
+      failed++;
+      const message = cause instanceof Error ? cause.message : 'Verification failed.';
+      errors.push(/column|schema cache|epa_frs_id|evidence_score/i.test(message) ? migrationMessage : message);
+    }
     await pause(200);
   }
   return NextResponse.json({ completed, failed, errors });
