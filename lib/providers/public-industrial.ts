@@ -73,7 +73,11 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
       public_records_verified_at: new Date().toISOString(),
       notes: item.parent_company ? `Reported parent company: ${item.parent_company}` : null,
     };
-    add(key, record, 'ghgrp', item);
+    add(key, record, 'ghgrp', {
+      facility_id: item.facility_id, eggrt_facility_id: item.eggrt_facility_id, facility_types: item.facility_types,
+      reported_industry_types: item.reported_industry_types, reported_subparts: item.reported_subparts,
+      parent_company: item.parent_company,
+    });
   }
 
   const activeTri = tri.filter((item) => item.fac_closed_ind !== '1' && usableCoordinate(item.pref_latitude, item.pref_longitude));
@@ -92,7 +96,10 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
       public_records_verified_at: new Date().toISOString(),
       notes: item.parent_co_name && item.parent_co_name !== 'NA' ? `Reported parent company: ${item.parent_co_name}` : null,
     };
-    add(key, record, 'tri', item);
+    add(key, record, 'tri', {
+      tri_facility_id: item.tri_facility_id, epa_registry_id: item.epa_registry_id,
+      parent_co_name: item.parent_co_name, fac_closed_ind: item.fac_closed_ind,
+    });
   }
 
   const rows = [...bySite.values()].map((row) => {
