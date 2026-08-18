@@ -4,7 +4,7 @@ import { prospectSignals } from '@/lib/prospect-signals';
 describe('DataForSEO prospect signals', () => {
   it('treats manufacturing as a priority industrial site without overstating the directory data', () => {
     const signals = prospectSignals({ id: 'p', provider: 'dataforseo', name: 'Example', facility_type: 'manufacturing', source_category: 'Manufacturer', phone: '555', website: 'https://example.com', enrichment_status: 'pending', prospect_status: 'new', dataforseo_raw: { additional_categories: ['Warehouse'], people_also_search: [{}, {}], place_topics: { trucks: 4, 'live load': 3 }, work_time: { work_hours: { timetable: { monday: [{ open: { hour: 0, minute: 0 }, close: { hour: 24, minute: 0 } }], tuesday: [{ open: { hour: 0, minute: 0 }, close: { hour: 24, minute: 0 } }], wednesday: [{ open: { hour: 0, minute: 0 }, close: { hour: 24, minute: 0 } }], thursday: [{ open: { hour: 0, minute: 0 }, close: { hour: 24, minute: 0 } }], friday: [{ open: { hour: 0, minute: 0 }, close: { hour: 24, minute: 0 } }] } } } } });
-    expect(signals.tier).toBe('priority_site');
+    expect(signals.tier).toBe('category_lead');
     expect(signals.evidenceFacts).toContain('Manufacturing operation — a high-energy facility category');
     expect(signals.hasPublicEvidence).toBe(false);
   });
@@ -29,7 +29,7 @@ describe('DataForSEO prospect signals', () => {
       },
     });
 
-    expect(signals.tier).toBe('screening');
+    expect(signals.tier).toBe('potential_site');
     expect(signals.score).toBeLessThan(50);
     expect(signals.hasPublicEvidence).toBe(false);
   });

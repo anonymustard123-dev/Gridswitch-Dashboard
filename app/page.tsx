@@ -16,8 +16,8 @@ const publicCheckNeedsRetry = (prospect: Prospect) => {
   const raw = prospect.public_records_raw as { pa_dep?: { error?: unknown } } | null | undefined;
   return !prospect.public_records_verified_at || Boolean(raw?.pa_dep?.error);
 };
-const shortText = (value: string, words: number) => {
-  const clean = value.replace(/\s*\(\[[^\]]+\]\([^)]*\)\)/g, '').replace(/\s+/g, ' ').trim();
+const shortText = (value: string | null | undefined, words: number) => {
+  const clean = (value ?? '').replace(/\s*\(\[[^\]]+\]\([^)]*\)\)/g, '').replace(/\s+/g, ' ').trim();
   const compact = clean.split(' ').slice(0, words).join(' ');
   return clean.split(' ').length > words ? `${compact}…` : compact;
 };
@@ -25,7 +25,8 @@ const shortText = (value: string, words: number) => {
 const tierStyle: Record<ProspectSignalTier, string> = {
   top_priority: 'bg-emerald-100 text-emerald-800',
   priority_site: 'bg-teal-100 text-teal-800',
-  screening: 'bg-slate-200 text-slate-700',
+  category_lead: 'bg-sky-100 text-sky-800',
+  potential_site: 'bg-slate-200 text-slate-700',
 };
 const fitStyle: Record<string, string> = {
   high: 'bg-emerald-100 text-emerald-800',
@@ -35,7 +36,7 @@ const fitStyle: Record<string, string> = {
 };
 
 function AiResearch({ research }: { research: AiFacilityResearch }) {
-  const facts = research.fit_reasons
+  const facts = (research.fit_reasons ?? [])
     .filter((reason) => !/no (?:public|direct|site-specific)|unknown/i.test(reason))
     .slice(0, 3);
   return (
@@ -46,11 +47,11 @@ function AiResearch({ research }: { research: AiFacilityResearch }) {
           {research.grid_switch_fit === 'unknown' ? 'More research needed' : `${research.grid_switch_fit} priority`}
         </span>
       </div>
-      <p className="mt-3 text-sm">{shortText(research.facility_summary, 42)}</p>
+      <p className="mt-3 text-sm">{shortText(research.facility_summary, 42) || 'No facility-specific AI summary is available yet.'}</p>
       {facts.length > 0 && <ul className="mt-3 space-y-1 text-sm">{facts.map((fact) => <li key={fact}>• {shortText(fact, 22)}</li>)}</ul>}
       <div className="mt-4 rounded bg-slate-900 p-3 text-sm text-white">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-300">Next move</div>
-        <p className="mt-1 font-semibold">{shortText(research.recommended_action_reason, 28)}</p>
+        <p className="mt-1 font-semibold">{shortText(research.recommended_action_reason, 28) || 'Review the public-source evidence before outreach.'}</p>
       </div>
       {research.outreach_angle && <p className="mt-3 text-sm"><b>Talk track:</b> {shortText(research.outreach_angle, 28)}</p>}
       {research.sources?.length > 0 && (
@@ -99,7 +100,7 @@ export default function Dashboard() {
         (!city || prospect.city === city) &&
         (!type || prospect.facility_type === type) &&
         (!tier || signalFor(prospect).tier === tier) &&
-        (showScreening || signalFor(prospect).tier !== 'screening') &&
+        (showScreening || signalFor(prospect).tier !== 'potential_site') &&
         `${prospect.name} ${prospect.address}`.toLowerCase().includes(query.toLowerCase()))
       .sort((a, b) => signalFor(b).score - signalFor(a).score),
     [all, city, type, tier, query, showScreening],
@@ -228,7 +229,7 @@ export default function Dashboard() {
           <section className="card min-h-96 overflow-hidden"><ProspectMap prospects={list} selected={selected} onSelect={setSelected} /></section>
           <section className="card overflow-auto">
             <table className="w-full">
-              <thead className="sticky top-0 bg-white"><tr>{['Priority', 'Facility', 'Type', 'City', 'Why it is a priority', 'Public sources', 'AI brief'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
+              <thead className="sticky top-0 bg-white"><tr>{['Priority', 'Facility', 'Type', 'City', 'Why it is listed', 'Public sources', 'AI brief'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
               <tbody>{list.map((prospect) => {
                 const signals = signalFor(prospect);
                 return <tr className={`cursor-pointer hover:bg-slate-50 ${selected?.id === prospect.id ? 'bg-teal-50' : ''}`} key={prospect.id} onClick={() => setSelected(prospect)}>
@@ -250,7 +251,7 @@ export default function Dashboard() {
           <p className="mt-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${tierStyle[selectedSignals.tier]}`}>{prospectSignalLabels[selectedSignals.tier]}</span></p>
           <p className="mt-4 text-sm">{selected.address}, {selected.city}, {selected.state} {selected.postal_code}</p>
           <section className="mt-6">
-            <h3 className="font-semibold">Why this site is a priority</h3>
+            <h3 className="font-semibold">Why this site is listed</h3>
             <p className="mt-2 text-sm text-slate-700">{selectedSignals.summary}</p>
             {selectedSignals.evidenceFacts.length > 0 && <ul className="mt-3 space-y-2 text-sm">{selectedSignals.evidenceFacts.map((fact) => <li key={fact}>• {fact}</li>)}</ul>}
             {!selectedSignals.hasPublicEvidence && !selectedSignals.publicRecordsChecked && <p className="mt-3 text-sm text-slate-600">Public-source check pending.</p>}

@@ -1,7 +1,7 @@
 import { ENERGY_FACTORS } from '@/lib/scoring';
 import type { Prospect } from '@/lib/types';
 
-export type ProspectSignalTier = 'top_priority' | 'priority_site' | 'screening';
+export type ProspectSignalTier = 'top_priority' | 'priority_site' | 'category_lead' | 'potential_site';
 
 export interface ProspectSignals {
   score: number;
@@ -48,7 +48,7 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
 
   const score = Math.min(
     100,
-    (prioritySector ? 35 : 0) +
+    (prioritySector ? 20 : 0) +
       (epaMatch ? 25 : 0) +
       (depMatch ? 25 : 0) +
       (ghgrp ? 30 : 0),
@@ -56,22 +56,24 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
   const tier: ProspectSignalTier =
     ghgrp || (prioritySector && epaMatch && depMatch)
       ? 'top_priority'
-      : prioritySector || (epaMatch && depMatch)
+      : (prioritySector && (epaMatch || depMatch)) || (epaMatch && depMatch)
         ? 'priority_site'
-        : 'screening';
+        : prioritySector
+          ? 'category_lead'
+          : 'potential_site';
 
   const summary =
     tier === 'top_priority'
       ? 'Likely high-energy industrial site based on independent EPA/DEP operating records and facility type.'
       : tier === 'priority_site'
-        ? hasPublicEvidence
-          ? 'Priority industrial site based on facility type and available operating-site evidence.'
+        ? 'Verified industrial operating site with public EPA or Pennsylvania DEP evidence.'
+        : tier === 'category_lead'
+          ? publicRecordsChecked
+            ? 'High-energy facility category, but no exact EPA or DEP regulatory-site match was found.'
+            : 'High-energy facility category; public operating-site checks are in progress.'
           : publicRecordsChecked
-            ? 'Likely high-energy industrial site based on its facility type; EPA and DEP checks found no exact regulatory-site match.'
-            : 'Likely high-energy industrial site based on its facility type; public operating-site records are pending.'
-        : publicRecordsChecked
-          ? 'Potential industrial site; public-source checks found no exact regulatory-site match.'
-          : 'Potential industrial site; public operating-site records are pending.';
+            ? 'Potential industrial site; public-source checks found no exact regulatory-site match.'
+            : 'Potential industrial site; public operating-site records are pending.';
 
   return { score, tier, evidenceFacts, sourceNames, summary, hasPublicEvidence, publicRecordsChecked };
 }
@@ -79,5 +81,6 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
 export const prospectSignalLabels: Record<ProspectSignalTier, string> = {
   top_priority: 'Top priority',
   priority_site: 'Priority site',
-  screening: 'Screening',
+  category_lead: 'Category lead',
+  potential_site: 'Potential site',
 };
