@@ -7,4 +7,28 @@ describe('DataForSEO prospect signals', () => {
     expect(signals.tier).toBe('strong_operating_signal');
     expect(signals.reasons).toContain('Listed 24/7 hours');
   });
+
+  it('ignores null timetable entries instead of crashing the dashboard', () => {
+    const signals = prospectSignals({
+      id: 'p-null-hours',
+      provider: 'dataforseo',
+      name: 'Null Hours Facility',
+      facility_type: 'warehouse',
+      enrichment_status: 'pending',
+      prospect_status: 'new',
+      dataforseo_raw: {
+        work_time: {
+          work_hours: {
+            timetable: {
+              monday: [null],
+              tuesday: [{ open: { hour: 8, minute: 0 }, close: { hour: 17, minute: 0 } }],
+            },
+          },
+        },
+      },
+    });
+
+    expect(signals.is24Hour).toBe(false);
+    expect(signals.reasons).not.toContain('Listed 24/7 hours');
+  });
 });

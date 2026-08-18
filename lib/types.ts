@@ -13,5 +13,19 @@ export interface Prospect {
   evidence_score?: number | null; evidence_tier?: 'needs_review' | 'site_signal' | 'priority_outreach' | 'high_evidence' | null; public_records_verified_at?: string | null;
   enrichment_status: EnrichmentStatus; match_confidence?: string | null; prospect_status: ProspectStatus; notes?: string | null;
   created_at?: string; updated_at?: string; dataforseo_raw?: unknown; regrid_raw?: unknown;
+  ai_research_status?: 'pending' | 'researching' | 'complete' | 'failed' | null; ai_research?: AiFacilityResearch | null; ai_researched_at?: string | null; ai_model?: string | null; ai_error?: string | null;
 }
 export interface SearchInput { centerLatitude:number; centerLongitude:number; radiusKm:number; state:string; categories:string[]; limit:number }
+
+export interface AiResearchSource { title: string; url: string; }
+export interface AiResearchClaim { claim: string; evidence_type: 'operations' | 'scale' | 'expansion' | 'resilience' | 'energy' | 'other'; confidence: 'high' | 'medium' | 'low'; source_url: string; }
+export interface AiFacilityResearch {
+  facility_summary: string;
+  grid_switch_fit: 'high' | 'moderate' | 'low' | 'unknown';
+  fit_reasons: string[];
+  operating_evidence: AiResearchClaim[];
+  outreach_angle: string;
+  discovery_questions: string[];
+  unknowns: string[];
+  sources: AiResearchSource[];
+}

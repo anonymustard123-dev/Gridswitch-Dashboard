@@ -24,6 +24,8 @@ Import the GitHub repository into Vercel. Add the environment variables listed i
 
 Add `DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD` to activate the DataForSEO Business Listings provider. Add `REGRID_API_TOKEN` to activate parcel enrichment. Their values stay exclusively in server route handlers. Add the Supabase Data API URL and secret key to persist live imports. Without those credentials, the route handlers remain safely in demo mode.
 
+Add `OPENAI_API_KEY` to enable cited facility web research. `OPENAI_MODEL` defaults to `gpt-5.4-mini`. Run `supabase/migrations/202608180002_add_ai_research.sql` before the first AI research request. The key is used only by the server route handler and is never returned to the browser.
+
 ## Design notes
 
 The GridSwitch Opportunity Score is deterministic: 65% building-area size score and 35% facility-type energy factor. It is a preliminary prioritization heuristic, never an electricity-consumption estimate.

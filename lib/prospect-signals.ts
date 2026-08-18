@@ -16,8 +16,8 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
   const raw = (prospect.dataforseo_raw ?? {}) as RawListing;
   const categories = [...new Set([prospect.source_category, raw.category, ...(raw.additional_categories ?? []), ...(raw.category_ids ?? [])].filter((value): value is string => Boolean(value)))];
   const timetable = raw.work_time?.work_hours?.timetable ?? {};
-  const dailyHours = Object.values(timetable).flat();
-  const is24Hour = dailyHours.length >= 5 && dailyHours.every((period) => period.open?.hour === 0 && period.open?.minute === 0 && period.close?.hour === 24 && period.close?.minute === 0);
+  const dailyHours = Object.values(timetable).flat().filter((period): period is NonNullable<typeof period> => Boolean(period));
+  const is24Hour = dailyHours.length >= 5 && dailyHours.every((period) => period?.open?.hour === 0 && period?.open?.minute === 0 && period?.close?.hour === 24 && period?.close?.minute === 0);
   const logisticsCues = Object.keys(raw.place_topics ?? {}).filter((topic) => logisticsTopics.has(topic));
   const relatedListings = raw.people_also_search?.length ?? 0;
   const hasContact = Boolean(prospect.phone || raw.phone) && Boolean(prospect.website || raw.url);
