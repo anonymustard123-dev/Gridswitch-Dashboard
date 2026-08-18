@@ -48,7 +48,7 @@ describe('DataForSEO prospect signals', () => {
     });
 
     expect(signals.tier).toBe('top_priority');
-    expect(signals.evidenceFacts).toContain('EPA Greenhouse Gas Reporting Program facility');
+    expect(signals.evidenceFacts).toContain('EPA GHGRP direct-emitter facility record');
     expect(signals.hasPublicEvidence).toBe(true);
   });
 

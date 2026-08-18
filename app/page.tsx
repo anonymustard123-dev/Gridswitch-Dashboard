@@ -12,14 +12,26 @@ import type { AiFacilityResearch, Prospect } from '@/lib/types';
 const label = (value: string | null | undefined) =>
   value?.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) || 'Unknown';
 const signalFor = (prospect: Prospect) => prospectSignals(prospect);
-const publicCheckNeedsRetry = (prospect: Prospect) => {
-  const raw = prospect.public_records_raw as { pa_dep?: { error?: unknown } } | null | undefined;
-  return !prospect.public_records_verified_at || Boolean(raw?.pa_dep?.error);
-};
 const shortText = (value: string | null | undefined, words: number) => {
   const clean = (value ?? '').replace(/\s*\(\[[^\]]+\]\([^)]*\)\)/g, '').replace(/\s+/g, ' ').trim();
   const compact = clean.split(' ').slice(0, words).join(' ');
   return clean.split(' ').length > words ? `${compact}…` : compact;
+};
+const publicRecordFacts = (prospect: Prospect) => {
+  const raw = (prospect.public_records_raw ?? {}) as { ghgrp?: Record<string, unknown>; tri?: Record<string, unknown> };
+  const ghgrp = raw.ghgrp;
+  const tri = raw.tri;
+  return [
+    prospect.epa_frs_id ? `EPA Registry ID: ${prospect.epa_frs_id}` : null,
+    prospect.epa_programs?.length ? `EPA programs: ${prospect.epa_programs.join(', ')}` : null,
+    ghgrp?.facility_types ? `GHGRP facility type: ${ghgrp.facility_types}` : null,
+    ghgrp?.reported_industry_types ? `GHGRP reported industry codes: ${ghgrp.reported_industry_types}` : null,
+    ghgrp?.reported_subparts ? `GHGRP reporting subparts: ${ghgrp.reported_subparts}` : null,
+    ghgrp?.parent_company ? `Reported parent company: ${ghgrp.parent_company}` : null,
+    tri ? `EPA TRI status: active industrial facility record` : null,
+    tri?.tri_facility_id ? `TRI facility ID: ${tri.tri_facility_id}` : null,
+    tri?.parent_co_name && tri.parent_co_name !== 'NA' ? `Reported parent company: ${tri.parent_co_name}` : null,
+  ].filter((fact): fact is string => Boolean(fact));
 };
 
 const tierStyle: Record<ProspectSignalTier, string> = {
@@ -73,8 +85,8 @@ export default function Dashboard() {
   const [showScreening, setShowScreening] = useState(false);
   const [demo, setDemo] = useState(false);
   const [searching, setSearching] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [initialSourceCheckStarted, setInitialSourceCheckStarted] = useState(false);
+  const [importingPublic, setImportingPublic] = useState(false);
+  const [initialPublicImportStarted, setInitialPublicImportStarted] = useState(false);
   const [researchingIds, setResearchingIds] = useState<string[]>([]);
   const [researchErrors, setResearchErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState('');
@@ -106,48 +118,30 @@ export default function Dashboard() {
     [all, city, type, tier, query, showScreening],
   );
 
-  async function runPublicSourceChecks(force = false) {
-    const candidates = all
-      .filter((item) => force || publicCheckNeedsRetry(item))
-      .sort((a, b) => signalFor(b).score - signalFor(a).score);
-    if (!candidates.length) {
-      setNotice('Public-source checks are current for the imported sites.');
-      return;
-    }
-
-    setVerifying(true);
-    let completed = 0;
-    let failed = 0;
+  async function importPublicPipeline() {
+    setImportingPublic(true);
     try {
-      for (let index = 0; index < candidates.length; index += 10) {
-        const batch = candidates.slice(index, index + 10);
-        setNotice(`Checking EPA FRS and PA DEP eFACTS records: ${Math.min(index + batch.length, candidates.length)} of ${candidates.length} sites...`);
-        try {
-          const response = await fetch('/api/prospects/verify-batch', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: batch.map((item) => item.id) }),
-          });
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error || 'Public-source checks failed.');
-          completed += result.completed ?? 0;
-          failed += result.failed ?? 0;
-        } catch {
-          failed += batch.length;
-        }
-      }
-      setNotice(`Public-source checks complete: ${completed} checked${failed ? `, ${failed} could not be checked` : ''}.`);
+      const response = await fetch('/api/prospects/import-public-records', { method: 'POST' });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error || 'Public-record import failed.');
+      const sources = result?.sourceCounts
+        ? ` (${result.sourceCounts.ghgrp} GHGRP records, ${result.sourceCounts.tri} TRI records before site merging)`
+        : '';
+      setNotice(`Public industrial pipeline refreshed: ${result.imported ?? 0} physical sites${sources}.`);
       await loadProspects();
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : 'Public-record import failed.');
     } finally {
-      setVerifying(false);
+      setImportingPublic(false);
     }
   }
 
   useEffect(() => {
-    if (!initialSourceCheckStarted && !demo && all.some(publicCheckNeedsRetry)) {
-      setInitialSourceCheckStarted(true);
-      void runPublicSourceChecks();
+    if (!initialPublicImportStarted && !demo && !all.some((prospect) => prospect.provider === 'public_pipeline')) {
+      setInitialPublicImportStarted(true);
+      void importPublicPipeline();
     }
-  }, [all, demo, initialSourceCheckStarted]);
+  }, [all, demo, initialPublicImportStarted]);
 
   async function findProspects() {
     setSearching(true);
@@ -171,7 +165,6 @@ export default function Dashboard() {
       if (!response.ok) throw new Error(result.error || 'Live search failed.');
       setNotice(`Search complete: ${result.imported ?? 0} facilities imported.`);
       await loadProspects();
-      setInitialSourceCheckStarted(false);
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : 'Unable to reach the prospect search service.');
     } finally {
@@ -209,6 +202,7 @@ export default function Dashboard() {
   }
 
   const selectedSignals = selected ? signalFor(selected) : null;
+  const selectedPublicFacts = selected ? publicRecordFacts(selected) : [];
   const isResearching = selected ? researchingIds.includes(selected.id) : false;
   const selectedResearchError = selected ? researchErrors[selected.id] || selected.ai_error : null;
 
@@ -230,7 +224,7 @@ export default function Dashboard() {
           <select className="control" value={type} onChange={(event) => setType(event.target.value)}><option value="">All facility types</option>{[...new Set(all.map((item) => item.facility_type).filter(Boolean))].map((item) => <option key={item} value={item!}>{label(item)}</option>)}</select>
           <select className="control" value={tier} onChange={(event) => setTier(event.target.value)}><option value="">Ranked opportunities</option>{Object.entries(prospectSignalLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
           <label className="flex items-center gap-2 px-2 text-sm text-slate-600"><input type="checkbox" checked={showScreening} onChange={(event) => setShowScreening(event.target.checked)} /> Include unverified directory listings</label>
-          <button className="control text-teal-800" disabled={verifying} onClick={() => runPublicSourceChecks(true)}>{verifying ? 'Checking public sources...' : 'Refresh public sources'}</button>
+          <button className="control text-teal-800" disabled={importingPublic} onClick={importPublicPipeline}>{importingPublic ? 'Refreshing EPA data...' : 'Refresh EPA industrial records'}</button>
           <button className="control text-teal-800" disabled={researchingIds.length > 0} onClick={researchTop3}>{researchingIds.length ? `Researching ${researchingIds.length}...` : 'Add AI briefs to top 3'}</button>
           <button className="rounded bg-teal-700 px-4 text-sm text-white" disabled={searching} onClick={findProspects}>{searching ? 'Searching...' : 'Find Prospects'}</button>
         </div>
@@ -267,6 +261,10 @@ export default function Dashboard() {
             {selectedSignals.evidenceFacts.length > 0 && <ul className="mt-3 space-y-2 text-sm">{selectedSignals.evidenceFacts.map((fact) => <li key={fact}>• {fact}</li>)}</ul>}
             {!selectedSignals.hasPublicEvidence && !selectedSignals.publicRecordsChecked && <p className="mt-3 text-sm text-slate-600">Public-source check pending.</p>}
           </section>
+          {selectedPublicFacts.length > 0 && <section className="mt-6 border-t pt-5">
+            <h3 className="font-semibold">Public record facts</h3>
+            <ul className="mt-3 space-y-2 text-sm">{selectedPublicFacts.map((fact) => <li key={fact}>• {fact}</li>)}</ul>
+          </section>}
           {selectedResearchError && <div role="alert" className="mt-5 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800"><b>AI brief did not run.</b><p className="mt-1">{selectedResearchError}</p></div>}
           {selected.ai_research && <AiResearch research={selected.ai_research} />}
           <div className="mt-6 flex flex-wrap gap-2">

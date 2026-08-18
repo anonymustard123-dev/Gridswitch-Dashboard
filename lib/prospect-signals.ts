@@ -27,6 +27,7 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
   const epaMatch = Boolean(prospect.epa_frs_id);
   const depMatch = Boolean(prospect.pa_dep_facility_id);
   const ghgrp = Boolean(prospect.epa_ghgrp_match);
+  const triMatch = Boolean(prospect.epa_programs?.includes('TRI'));
   const hasPublicEvidence = epaMatch || depMatch;
   const publicRecordsChecked = Boolean(prospect.public_records_verified_at);
 
@@ -34,15 +35,17 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
     prioritySector
       ? `${clean(prospect.facility_type || 'industrial')} operation — a high-energy facility category`
       : null,
-    ghgrp ? 'EPA Greenhouse Gas Reporting Program facility' : null,
-    epaMatch ? 'EPA Facility Registry operating-site match' : null,
+    ghgrp ? 'EPA GHGRP direct-emitter facility record' : null,
+    triMatch ? 'EPA TRI active industrial-facility record' : null,
+    epaMatch && !ghgrp && !triMatch ? 'EPA Facility Registry operating-site match' : null,
     depMatch ? 'Pennsylvania DEP regulated-facility match' : null,
   ].filter((fact): fact is string => Boolean(fact));
 
   const sourceNames = [
     prioritySector ? 'DataForSEO business category' : null,
-    ghgrp ? 'EPA GHGRP' : null,
-    epaMatch ? 'EPA FRS match' : publicRecordsChecked ? 'EPA FRS checked' : null,
+    ghgrp ? 'EPA GHGRP direct emitter' : null,
+    triMatch ? 'EPA TRI active facility' : null,
+    epaMatch && !ghgrp && !triMatch ? 'EPA FRS match' : publicRecordsChecked ? 'EPA FRS checked' : null,
     depMatch ? 'PA DEP eFACTS match' : publicRecordsChecked ? 'PA DEP eFACTS checked' : null,
   ].filter((source): source is string => Boolean(source));
 
@@ -56,7 +59,7 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
   const tier: ProspectSignalTier =
     ghgrp || (prioritySector && epaMatch && depMatch)
       ? 'top_priority'
-      : hasPublicEvidence
+      : hasPublicEvidence || triMatch
         ? 'priority_site'
         : prioritySector
           ? 'category_lead'
@@ -66,7 +69,11 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
     tier === 'top_priority'
       ? 'Likely high-energy industrial site based on independent EPA/DEP operating records and facility type.'
       : tier === 'priority_site'
-        ? 'Verified operating industrial site with a public EPA or Pennsylvania DEP record.'
+        ? ghgrp
+          ? 'EPA GHGRP direct-emitter facility: a documented large industrial emissions source and high-priority energy conversation.'
+          : triMatch
+            ? 'Active EPA TRI industrial facility: a documented operating industrial site for targeted outreach.'
+            : 'Verified operating industrial site with a public EPA or Pennsylvania DEP record.'
         : tier === 'category_lead'
           ? publicRecordsChecked
             ? 'High-energy facility category, but no exact EPA or DEP regulatory-site match was found.'
