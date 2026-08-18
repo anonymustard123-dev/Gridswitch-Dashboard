@@ -15,7 +15,12 @@ export async function POST() {
       const batch = imported.rows.slice(index, index + 100);
       const { error } = await db.from('prospects').upsert(batch, { onConflict: 'provider,provider_place_id' });
       if (error) {
-        failed.push(error.message);
+        // A malformed upstream record must not discard the other 99 sites.
+        for (const row of batch) {
+          const { error: rowError } = await db.from('prospects').upsert([row], { onConflict: 'provider,provider_place_id' });
+          if (rowError) failed.push(rowError.message);
+          else completed += 1;
+        }
       } else {
         completed += batch.length;
       }
