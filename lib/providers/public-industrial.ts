@@ -1,11 +1,12 @@
 import { evidenceScore, evidenceTier } from '@/lib/evidence';
+import { facilityTypeForNaics } from '@/lib/microgrid-profile';
 import { ENERGY_FACTORS, opportunityScore } from '@/lib/scoring';
 import type { Prospect } from '@/lib/types';
 
 type GhgrpFacility = {
   facility_id?: number; facility_name?: string; address1?: string; city?: string; state?: string; zip?: string;
   latitude?: number; longitude?: number; frs_id?: string; eggrt_facility_id?: number; parent_company?: string | null;
-  facility_types?: string; reported_industry_types?: string | null; reported_subparts?: string | null;
+  facility_types?: string; reported_industry_types?: string | null; reported_subparts?: string | null; naics_code?: string | null;
 };
 type TriFacility = {
   tri_facility_id?: string; facility_name?: string; street_address?: string; city_name?: string; state_abbr?: string;
@@ -44,6 +45,7 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
       name: current.name || record.name,
       address: current.address || record.address,
       city: current.city || record.city,
+      facility_type: current.epa_ghgrp_match ? current.facility_type : record.facility_type || current.facility_type,
       latitude: current.latitude ?? record.latitude,
       longitude: current.longitude ?? record.longitude,
       phone: current.phone || record.phone,
@@ -62,21 +64,22 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
   for (const item of directEmitters) {
     const frsId = String(item.frs_id ?? '').trim();
     const key = frsId ? `frs:${frsId}` : `ghgrp:${item.eggrt_facility_id ?? item.facility_id}`;
+    const facilityType = facilityTypeForNaics(item.naics_code);
     const sourceCategory = `EPA GHGRP direct emitter${item.reported_industry_types ? ` · industry codes ${item.reported_industry_types}` : ''}${item.reported_subparts ? ` · subparts ${item.reported_subparts}` : ''}`;
     const record: Partial<Prospect> = {
-      name: item.facility_name || 'Unnamed EPA GHGRP facility', facility_type: 'manufacturing', source_category: sourceCategory,
+      name: item.facility_name || 'Unnamed EPA GHGRP facility', facility_type: facilityType, source_category: sourceCategory,
       address: item.address1 ?? null, city: item.city ?? null, state: item.state ?? 'PA', postal_code: item.zip ?? null,
       latitude: Number(item.latitude), longitude: Number(item.longitude), epa_frs_id: frsId || null,
       epa_facility_name: item.facility_name ?? null, epa_programs: ['E-GGRT'], epa_ghgrp_match: true,
-      epa_match_confidence: 'source record', energy_factor: ENERGY_FACTORS.manufacturing,
-      opportunity_score: opportunityScore('manufacturing', null), enrichment_status: 'pending', prospect_status: 'new',
+      epa_match_confidence: 'source record', energy_factor: ENERGY_FACTORS[facilityType] ?? ENERGY_FACTORS.unknown,
+      opportunity_score: opportunityScore(facilityType, null), enrichment_status: 'pending', prospect_status: 'new',
       public_records_verified_at: new Date().toISOString(),
       notes: item.parent_company ? `Reported parent company: ${item.parent_company}` : null,
     };
     add(key, record, 'ghgrp', {
       facility_id: item.facility_id, eggrt_facility_id: item.eggrt_facility_id, facility_types: item.facility_types,
       reported_industry_types: item.reported_industry_types, reported_subparts: item.reported_subparts,
-      parent_company: item.parent_company,
+      parent_company: item.parent_company, naics_code: item.naics_code,
     });
   }
 

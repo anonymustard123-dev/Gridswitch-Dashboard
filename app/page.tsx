@@ -7,6 +7,7 @@ import {
   prospectSignals,
   type ProspectSignalTier,
 } from '@/lib/prospect-signals';
+import { microgridFitLabels, microgridProfile } from '@/lib/microgrid-profile';
 import type { AiFacilityResearch, Prospect } from '@/lib/types';
 
 const label = (value: string | null | undefined) =>
@@ -24,6 +25,7 @@ const publicRecordFacts = (prospect: Prospect) => {
   return [
     prospect.epa_frs_id ? `EPA Registry ID: ${prospect.epa_frs_id}` : null,
     prospect.epa_programs?.length ? `EPA programs: ${prospect.epa_programs.join(', ')}` : null,
+    ghgrp?.naics_code ? `GHGRP NAICS: ${ghgrp.naics_code}` : null,
     ghgrp?.facility_types ? `GHGRP facility type: ${ghgrp.facility_types}` : null,
     ghgrp?.reported_industry_types ? `GHGRP reported industry codes: ${ghgrp.reported_industry_types}` : null,
     ghgrp?.reported_subparts ? `GHGRP reporting subparts: ${ghgrp.reported_subparts}` : null,
@@ -203,6 +205,7 @@ export default function Dashboard() {
   }
 
   const selectedSignals = selected ? signalFor(selected) : null;
+  const selectedProfile = selected ? microgridProfile(selected) : null;
   const selectedPublicFacts = selected ? publicRecordFacts(selected) : [];
   const isResearching = selected ? researchingIds.includes(selected.id) : false;
   const selectedResearchError = selected ? researchErrors[selected.id] || selected.ai_error : null;
@@ -216,7 +219,7 @@ export default function Dashboard() {
       <div className="mx-auto max-w-[1800px] p-5">
         <div className="mb-4">
           <h1 className="text-xl font-bold">Industrial Site Priorities</h1>
-          <p className="mt-1 text-sm text-slate-600">Ranked sites are likely high-energy operating facilities based on facility type and corroborating EPA / Pennsylvania DEP records.</p>
+          <p className="mt-1 text-sm text-slate-600">Ranked using disclosed process intensity, EPA operating evidence, site scale where known, and corporate signal. Scores are screening guidance, not load estimates.</p>
         </div>
 
         <div className="card mb-4 flex flex-wrap gap-2 p-3">
@@ -225,7 +228,7 @@ export default function Dashboard() {
           <select className="control" value={type} onChange={(event) => setType(event.target.value)}><option value="">All facility types</option>{[...new Set(all.map((item) => item.facility_type).filter(Boolean))].map((item) => <option key={item} value={item!}>{label(item)}</option>)}</select>
           <select className="control" value={tier} onChange={(event) => setTier(event.target.value)}><option value="">Ranked opportunities</option>{Object.entries(prospectSignalLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
           <label className="flex items-center gap-2 px-2 text-sm text-slate-600"><input type="checkbox" checked={showScreening} onChange={(event) => setShowScreening(event.target.checked)} /> Include unverified directory listings</label>
-          <button className="control text-teal-800" disabled={importingPublic} onClick={importPublicPipeline}>{importingPublic ? 'Refreshing EPA data...' : 'Refresh EPA industrial records'}</button>
+          <button className="control text-teal-800" disabled={importingPublic} onClick={importPublicPipeline}>{importingPublic ? 'Refreshing EPA data...' : 'Refresh EPA records & scores'}</button>
           <button className="control text-teal-800" disabled={researchingIds.length > 0} onClick={researchTop3}>{researchingIds.length ? `Researching ${researchingIds.length}...` : 'Add AI briefs to top 3'}</button>
           <button className="rounded bg-teal-700 px-4 text-sm text-white" disabled={searching} onClick={findProspects}>{searching ? 'Searching...' : 'Find Prospects'}</button>
         </div>
@@ -235,13 +238,14 @@ export default function Dashboard() {
           <section className="card min-h-96 overflow-hidden"><ProspectMap prospects={list} selected={selected} onSelect={setSelected} /></section>
           <section className="card overflow-auto">
             <table className="w-full">
-              <thead className="sticky top-0 bg-white"><tr>{['Priority', 'Facility', 'Type', 'City', 'Why it is listed', 'Public sources', 'AI brief'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
+              <thead className="sticky top-0 bg-white"><tr>{['Priority', 'Facility', 'Type', 'City', 'Primary score signal', 'Public sources', 'AI brief'].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
               <tbody>{list.map((prospect) => {
                 const signals = signalFor(prospect);
+                const profile = microgridProfile(prospect);
                 return <tr className={`cursor-pointer hover:bg-slate-50 ${selected?.id === prospect.id ? 'bg-teal-50' : ''}`} key={prospect.id} onClick={() => setSelected(prospect)}>
-                  <td><span className={`rounded-full px-2 py-1 text-xs font-semibold ${tierStyle[signals.tier]}`}>{prospectSignalLabels[signals.tier]}</span></td>
+                  <td><span className={`rounded-full px-2 py-1 text-xs font-semibold ${tierStyle[signals.tier]}`}>{prospectSignalLabels[signals.tier]} · {signals.score}</span></td>
                   <td className="font-medium">{prospect.name}</td><td>{label(prospect.facility_type)}</td><td>{prospect.city}</td>
-                  <td>{signals.evidenceFacts[0] || 'Public operating-site check pending'}</td>
+                  <td>{profile.reasons[0] || signals.evidenceFacts[0] || 'Public operating-site check pending'}</td>
                   <td>{signals.sourceNames.length ? signals.sourceNames.join(' · ') : 'Pending'}</td>
                   <td className="capitalize">{prospect.ai_research?.grid_switch_fit && prospect.ai_research.grid_switch_fit !== 'unknown' ? `${prospect.ai_research.grid_switch_fit} priority` : prospect.ai_research_status === 'failed' ? 'Failed' : researchingIds.includes(prospect.id) ? 'Researching...' : 'Not added'}</td>
                 </tr>;
@@ -254,14 +258,28 @@ export default function Dashboard() {
         {selected && selectedSignals && <aside className="fixed right-0 top-0 z-10 h-full w-[500px] overflow-auto bg-white p-6 shadow-2xl">
           <button className="float-right text-slate-500" onClick={() => setSelected(null)}>Close</button>
           <h2 className="pr-12 text-xl font-bold">{selected.name}</h2>
-          <p className="mt-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${tierStyle[selectedSignals.tier]}`}>{prospectSignalLabels[selectedSignals.tier]}</span></p>
+          <p className="mt-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${tierStyle[selectedSignals.tier]}`}>{prospectSignalLabels[selectedSignals.tier]} · {selectedSignals.score}/100</span></p>
           <p className="mt-4 text-sm">{selected.address}, {selected.city}, {selected.state} {selected.postal_code}</p>
           <section className="mt-6">
-            <h3 className="font-semibold">How to use this lead</h3>
+            <h3 className="font-semibold">Microgrid opportunity score</h3>
             <p className="mt-2 text-sm text-slate-700">{selectedSignals.summary}</p>
-            {selectedSignals.evidenceFacts.length > 0 && <ul className="mt-3 space-y-2 text-sm">{selectedSignals.evidenceFacts.map((fact) => <li key={fact}>• {fact}</li>)}</ul>}
+            {selectedProfile?.reasons.length ? <ul className="mt-3 space-y-2 text-sm">{selectedProfile.reasons.map((fact) => <li key={fact}>• {fact}</li>)}</ul> : null}
             {!selectedSignals.hasPublicEvidence && !selectedSignals.publicRecordsChecked && <p className="mt-3 text-sm text-slate-600">Public-source check pending.</p>}
           </section>
+          <section className="mt-5 grid grid-cols-2 gap-2 text-xs text-slate-700">
+            {selectedProfile && (() => {
+              const profile = selectedProfile;
+              return [
+                ['Process intensity', `${profile.processPoints}/30`],
+                ['Operating evidence', `${profile.operatingPoints}/34`],
+                ['Site scale', `${profile.scalePoints}/15`],
+                ['Record confidence', `${profile.evidencePoints}/10`],
+                ['Corporate signal', `${profile.corporatePoints}/11`],
+                ['Pipeline bucket', microgridFitLabels[profile.fit]],
+              ].map(([title, value]) => <div className="rounded bg-slate-50 p-3" key={title}><div className="text-slate-500">{title}</div><b className="mt-1 block text-slate-900">{value}</b></div>);
+            })()}
+          </section>
+          <p className="mt-3 text-xs text-slate-500">The score ranks disclosed industrial and commercial signals. It does not estimate a facility's electricity load or energy spend.</p>
           <section className="mt-5 rounded bg-slate-50 p-4 text-sm text-slate-700">
             <b className="text-slate-900">Recommended next step:</b>{' '}
             {selectedSignals.tier === 'top_priority'

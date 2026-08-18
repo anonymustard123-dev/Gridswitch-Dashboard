@@ -6,7 +6,7 @@ describe('public industrial pipeline', () => {
     const result = normalizePublicIndustrialRecords([
       {
         facility_id: 1, facility_name: 'Example Glass', address1: '1 Plant Way', city: 'Erie', state: 'PA', zip: '16501',
-        latitude: 42.1, longitude: -80.1, frs_id: '1100001', facility_types: 'Direct Emitter', reported_industry_types: 'C,N', reported_subparts: 'C,N', parent_company: 'Example Holdings',
+        latitude: 42.1, longitude: -80.1, frs_id: '1100001', facility_types: 'Direct Emitter', naics_code: '322110', reported_industry_types: 'C,N', reported_subparts: 'C,N', parent_company: 'Example Holdings',
       },
     ], [
       {
@@ -21,6 +21,7 @@ describe('public industrial pipeline', () => {
     expect(result.rows[0].source_category).toContain('EPA GHGRP direct emitter');
     expect(result.rows[0].source_category).toContain('EPA TRI active industrial facility');
     expect(result.rows[0].longitude).toBe(-80.1);
+    expect(result.rows[0].facility_type).toBe('manufacturing');
   });
 
   it('excludes electricity-generation and closed TRI records from the industrial lead pipeline', () => {
