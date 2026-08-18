@@ -4,6 +4,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useEffect, useRef } from 'react';
 import type { Prospect } from '@/lib/types';
+import { prospectSignals } from '@/lib/prospect-signals';
 
 function featureCollection(prospects: Prospect[]): GeoJSON.FeatureCollection {
   return {
@@ -12,7 +13,7 @@ function featureCollection(prospects: Prospect[]): GeoJSON.FeatureCollection {
       .filter((prospect) => prospect.latitude != null && prospect.longitude != null)
       .map((prospect) => ({
         type: 'Feature' as const,
-        properties: { id: prospect.id, score: prospect.opportunity_score ?? 0 },
+        properties: { id: prospect.id, score: prospectSignals(prospect).score },
         geometry: { type: 'Point' as const, coordinates: [prospect.longitude!, prospect.latitude!] },
       })),
   };
