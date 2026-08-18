@@ -64,6 +64,7 @@ export default function Dashboard() {
   const [demo, setDemo] = useState(false);
   const [searching, setSearching] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [initialSourceCheckStarted, setInitialSourceCheckStarted] = useState(false);
   const [researchingIds, setResearchingIds] = useState<string[]>([]);
   const [researchErrors, setResearchErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState('');
@@ -95,6 +96,49 @@ export default function Dashboard() {
     [all, city, type, tier, query, showScreening],
   );
 
+  async function runPublicSourceChecks(force = false) {
+    const candidates = all
+      .filter((item) => force || !item.public_records_verified_at)
+      .sort((a, b) => signalFor(b).score - signalFor(a).score);
+    if (!candidates.length) {
+      setNotice('Public-source checks are current for the imported sites.');
+      return;
+    }
+
+    setVerifying(true);
+    let completed = 0;
+    let failed = 0;
+    try {
+      for (let index = 0; index < candidates.length; index += 10) {
+        const batch = candidates.slice(index, index + 10);
+        setNotice(`Checking EPA FRS and PA DEP eFACTS records: ${Math.min(index + batch.length, candidates.length)} of ${candidates.length} sites...`);
+        try {
+          const response = await fetch('/api/prospects/verify-batch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: batch.map((item) => item.id) }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Public-source checks failed.');
+          completed += result.completed ?? 0;
+          failed += result.failed ?? 0;
+        } catch {
+          failed += batch.length;
+        }
+      }
+      setNotice(`Public-source checks complete: ${completed} checked${failed ? `, ${failed} could not be checked` : ''}.`);
+      await loadProspects();
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!initialSourceCheckStarted && !demo && all.some((item) => !item.public_records_verified_at)) {
+      setInitialSourceCheckStarted(true);
+      void runPublicSourceChecks();
+    }
+  }, [all, demo, initialSourceCheckStarted]);
+
   async function findProspects() {
     setSearching(true);
     try {
@@ -106,37 +150,11 @@ export default function Dashboard() {
       if (!response.ok) throw new Error(result.error || 'Live search failed.');
       setNotice(`Search complete: ${result.imported ?? 0} facilities imported.`);
       await loadProspects();
+      setInitialSourceCheckStarted(false);
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : 'Unable to reach the prospect search service.');
     } finally {
       setSearching(false);
-    }
-  }
-
-  async function verifyTopSites() {
-    const candidates = all
-      .filter((item) => !item.public_records_verified_at)
-      .sort((a, b) => signalFor(b).score - signalFor(a).score)
-      .slice(0, 25);
-    if (!candidates.length) {
-      setNotice('Public-source checks are current for the imported sites.');
-      return;
-    }
-    setVerifying(true);
-    setNotice(`Checking EPA FRS and PA DEP eFACTS records for ${candidates.length} sites...`);
-    try {
-      const response = await fetch('/api/prospects/verify-batch', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: candidates.map((item) => item.id) }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Public-source checks failed.');
-      setNotice(`Public-source checks complete: ${result.completed} checked${result.failed ? `, ${result.failed} could not be checked` : ''}.`);
-      await loadProspects();
-    } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : 'Public-source checks failed.');
-    } finally {
-      setVerifying(false);
     }
   }
 
@@ -191,7 +209,7 @@ export default function Dashboard() {
           <select className="control" value={type} onChange={(event) => setType(event.target.value)}><option value="">All facility types</option>{[...new Set(all.map((item) => item.facility_type).filter(Boolean))].map((item) => <option key={item} value={item!}>{label(item)}</option>)}</select>
           <select className="control" value={tier} onChange={(event) => setTier(event.target.value)}><option value="">Priority sites</option>{Object.entries(prospectSignalLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
           <label className="flex items-center gap-2 px-2 text-sm text-slate-600"><input type="checkbox" checked={showScreening} onChange={(event) => setShowScreening(event.target.checked)} /> Show screening list</label>
-          <button className="control text-teal-800" disabled={verifying} onClick={verifyTopSites}>{verifying ? 'Checking public sources...' : 'Refresh public sources'}</button>
+          <button className="control text-teal-800" disabled={verifying} onClick={() => runPublicSourceChecks(true)}>{verifying ? 'Checking public sources...' : 'Refresh public sources'}</button>
           <button className="control text-teal-800" disabled={researchingIds.length > 0} onClick={researchTop3}>{researchingIds.length ? `Researching ${researchingIds.length}...` : 'Add AI briefs to top 3'}</button>
           <button className="rounded bg-teal-700 px-4 text-sm text-white" disabled={searching} onClick={findProspects}>{searching ? 'Searching...' : 'Find Prospects'}</button>
         </div>
