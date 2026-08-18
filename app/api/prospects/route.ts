@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { hydrateEmbeddedAiResearch } from '@/lib/ai-research-storage';
 import { mockProspects } from '@/lib/providers/mock';
+import { normalizeResearch } from '@/lib/providers/openai-research';
 import { adminDb } from '@/lib/supabase';
 import type { Prospect } from '@/lib/types';
 
@@ -25,8 +26,13 @@ export async function GET() {
   if ((data?.length ?? 0) === 0) {
     return NextResponse.json({ prospects: mockProspects, demo: true });
   }
+  const prospects = (data as Prospect[]).map(hydrateEmbeddedAiResearch).map((prospect) =>
+    prospect.ai_research
+      ? { ...prospect, ai_research: normalizeResearch(prospect.ai_research) }
+      : prospect,
+  );
   return NextResponse.json({
-    prospects: (data as Prospect[]).map(hydrateEmbeddedAiResearch),
+    prospects,
     demo: false,
   });
 }
