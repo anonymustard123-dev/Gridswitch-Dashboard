@@ -52,15 +52,26 @@ describe('DataForSEO prospect signals', () => {
     expect(signals.hasPublicEvidence).toBe(true);
   });
 
-  it('promotes an EPA-verified operating site even when its directory category is weak', () => {
+  it('keeps a generic EPA facility record as an industrial lead rather than overcalling it as priority', () => {
     const signals = prospectSignals({
       id: 'epa-warehouse', provider: 'dataforseo', name: 'US Nonwovens', facility_type: 'warehouse',
       enrichment_status: 'pending', prospect_status: 'new', epa_frs_id: '110070681998',
       epa_facility_name: 'US NONWOVENS, INC.', epa_programs: ['ICIS'],
     });
 
-    expect(signals.tier).toBe('priority_site');
-    expect(signals.summary).toContain('Verified operating industrial site');
+    expect(signals.tier).toBe('industrial_lead');
+    expect(signals.summary).toContain('energy intensity still needs qualification');
     expect(signals.hasPublicEvidence).toBe(true);
+  });
+
+  it('treats TRI as verified industrial evidence, not proof of a top energy opportunity', () => {
+    const signals = prospectSignals({
+      id: 'tri', provider: 'public_pipeline', name: 'TRI Plant', facility_type: 'manufacturing',
+      enrichment_status: 'pending', prospect_status: 'new', epa_frs_id: '1100', epa_programs: ['TRI'],
+    });
+
+    expect(signals.tier).toBe('industrial_lead');
+    expect(signals.evidenceFacts).toContain('EPA TRI active industrial-facility record');
+    expect(signals.evidenceFacts).not.toContain('Manufacturing operation â€” a high-energy facility category');
   });
 });

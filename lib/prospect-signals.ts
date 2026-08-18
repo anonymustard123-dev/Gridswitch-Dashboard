@@ -1,7 +1,7 @@
 import { ENERGY_FACTORS } from '@/lib/scoring';
 import type { Prospect } from '@/lib/types';
 
-export type ProspectSignalTier = 'top_priority' | 'priority_site' | 'category_lead' | 'potential_site';
+export type ProspectSignalTier = 'top_priority' | 'priority_site' | 'industrial_lead' | 'category_lead' | 'potential_site';
 
 export interface ProspectSignals {
   score: number;
@@ -30,9 +30,13 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
   const triMatch = Boolean(prospect.epa_programs?.includes('TRI'));
   const hasPublicEvidence = epaMatch || depMatch;
   const publicRecordsChecked = Boolean(prospect.public_records_verified_at);
+  // TRI confirms an operating industrial facility. It does not, by itself,
+  // prove a large load, so keep it distinct from GHGRP direct emitters.
+  const directoryCategorySignal = prospect.provider === 'dataforseo' && prioritySector;
+  const categorySignal = directoryCategorySignal || (ghgrp && prioritySector);
 
   const evidenceFacts = [
-    prioritySector
+    categorySignal
       ? `${clean(prospect.facility_type || 'industrial')} operation — a high-energy facility category`
       : null,
     ghgrp ? 'EPA GHGRP direct-emitter facility record' : null,
@@ -42,38 +46,46 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
   ].filter((fact): fact is string => Boolean(fact));
 
   const sourceNames = [
-    prioritySector ? 'DataForSEO business category' : null,
+    directoryCategorySignal ? 'DataForSEO business category' : null,
     ghgrp ? 'EPA GHGRP direct emitter' : null,
     triMatch ? 'EPA TRI active facility' : null,
     epaMatch && !ghgrp && !triMatch ? 'EPA FRS match' : publicRecordsChecked ? 'EPA FRS checked' : null,
     depMatch ? 'PA DEP eFACTS match' : publicRecordsChecked ? 'PA DEP eFACTS checked' : null,
   ].filter((source): source is string => Boolean(source));
 
-  const score = Math.min(
-    100,
-    (prioritySector ? 20 : 0) +
-      (epaMatch ? 40 : 0) +
-      (depMatch ? 40 : 0) +
-      (ghgrp ? 30 : 0),
-  );
+  const score = ghgrp
+    ? 95
+    : triMatch
+      ? 65
+      : directoryCategorySignal && hasPublicEvidence
+        ? 75
+        : directoryCategorySignal
+          ? 45
+          : hasPublicEvidence
+            ? 40
+            : 10;
   const tier: ProspectSignalTier =
-    ghgrp || (prioritySector && epaMatch && depMatch)
+    ghgrp
       ? 'top_priority'
-      : hasPublicEvidence || triMatch
+      : triMatch
+        ? 'industrial_lead'
+        : directoryCategorySignal && hasPublicEvidence
         ? 'priority_site'
-        : prioritySector
+        : directoryCategorySignal
           ? 'category_lead'
+          : hasPublicEvidence
+            ? 'industrial_lead'
           : 'potential_site';
 
   const summary =
     tier === 'top_priority'
-      ? 'Likely high-energy industrial site based on independent EPA/DEP operating records and facility type.'
+      ? 'EPA GHGRP identifies this as a direct-emitter industrial facility. Start here for high-energy outreach.'
       : tier === 'priority_site'
-        ? ghgrp
-          ? 'EPA GHGRP direct-emitter facility: a documented large industrial emissions source and high-priority energy conversation.'
-          : triMatch
-            ? 'Active EPA TRI industrial facility: a documented operating industrial site for targeted outreach.'
-            : 'Verified operating industrial site with a public EPA or Pennsylvania DEP record.'
+        ? 'High-energy facility category corroborated by a public operating-site record.'
+        : tier === 'industrial_lead'
+          ? triMatch
+            ? 'EPA TRI confirms an active industrial facility. Validate load, operating schedule, and outage exposure before executive outreach.'
+            : 'A public EPA or Pennsylvania DEP record confirms an operating site; energy intensity still needs qualification.'
         : tier === 'category_lead'
           ? publicRecordsChecked
             ? 'High-energy facility category, but no exact EPA or DEP regulatory-site match was found.'
@@ -88,6 +100,7 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
 export const prospectSignalLabels: Record<ProspectSignalTier, string> = {
   top_priority: 'Top priority',
   priority_site: 'Priority site',
+  industrial_lead: 'Industrial lead',
   category_lead: 'Category lead',
-  potential_site: 'Potential site',
+  potential_site: 'Directory lead',
 };

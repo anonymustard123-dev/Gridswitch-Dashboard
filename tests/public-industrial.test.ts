@@ -20,6 +20,7 @@ describe('public industrial pipeline', () => {
     expect(result.rows[0].epa_programs).toEqual(expect.arrayContaining(['E-GGRT', 'TRI']));
     expect(result.rows[0].source_category).toContain('EPA GHGRP direct emitter');
     expect(result.rows[0].source_category).toContain('EPA TRI active industrial facility');
+    expect(result.rows[0].longitude).toBe(-80.1);
   });
 
   it('excludes electricity-generation and closed TRI records from the industrial lead pipeline', () => {

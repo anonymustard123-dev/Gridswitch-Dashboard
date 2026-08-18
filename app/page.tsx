@@ -37,6 +37,7 @@ const publicRecordFacts = (prospect: Prospect) => {
 const tierStyle: Record<ProspectSignalTier, string> = {
   top_priority: 'bg-emerald-100 text-emerald-800',
   priority_site: 'bg-teal-100 text-teal-800',
+  industrial_lead: 'bg-amber-100 text-amber-900',
   category_lead: 'bg-sky-100 text-sky-800',
   potential_site: 'bg-slate-200 text-slate-700',
 };
@@ -256,10 +257,22 @@ export default function Dashboard() {
           <p className="mt-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${tierStyle[selectedSignals.tier]}`}>{prospectSignalLabels[selectedSignals.tier]}</span></p>
           <p className="mt-4 text-sm">{selected.address}, {selected.city}, {selected.state} {selected.postal_code}</p>
           <section className="mt-6">
-            <h3 className="font-semibold">Why this site is listed</h3>
+            <h3 className="font-semibold">How to use this lead</h3>
             <p className="mt-2 text-sm text-slate-700">{selectedSignals.summary}</p>
             {selectedSignals.evidenceFacts.length > 0 && <ul className="mt-3 space-y-2 text-sm">{selectedSignals.evidenceFacts.map((fact) => <li key={fact}>• {fact}</li>)}</ul>}
             {!selectedSignals.hasPublicEvidence && !selectedSignals.publicRecordsChecked && <p className="mt-3 text-sm text-slate-600">Public-source check pending.</p>}
+          </section>
+          <section className="mt-5 rounded bg-slate-50 p-4 text-sm text-slate-700">
+            <b className="text-slate-900">Recommended next step:</b>{' '}
+            {selectedSignals.tier === 'top_priority'
+              ? 'Contact facilities or operations leadership and ask about peak demand, expansion, resilience requirements, and outage cost.'
+              : selectedSignals.tier === 'priority_site'
+                ? 'Confirm peak demand, operating hours, and outage exposure before moving it into active outreach.'
+                : selectedSignals.tier === 'industrial_lead'
+                  ? 'Use the EPA record to verify the site, then qualify its process load and resilience need.'
+                  : selectedSignals.tier === 'category_lead'
+                    ? 'Research the operation before outreach; its category is promising but it lacks a corroborating facility record.'
+                    : 'Keep in discovery only until a facility-specific operating signal is available.'}
           </section>
           {selectedPublicFacts.length > 0 && <section className="mt-6 border-t pt-5">
             <h3 className="font-semibold">Public record facts</h3>

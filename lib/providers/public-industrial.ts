@@ -87,12 +87,13 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
     if (!triId) continue;
     const key = frsId ? `frs:${frsId}` : `tri:${triId}`;
     const record: Partial<Prospect> = {
-      name: item.facility_name || 'Unnamed EPA TRI facility', facility_type: 'manufacturing', source_category: 'EPA TRI active industrial facility',
+      name: item.facility_name || 'Unnamed EPA TRI facility', facility_type: 'industrial', source_category: 'EPA TRI active industrial facility',
       address: item.street_address ?? null, city: item.city_name ?? null, state: item.state_abbr ?? 'PA', postal_code: item.zip_code ?? null,
-      latitude: Number(item.pref_latitude), longitude: Number(item.pref_longitude), phone: item.asgn_public_phone ?? null,
+      // TRI returns Pennsylvania longitudes without the western-hemisphere sign.
+      latitude: Number(item.pref_latitude), longitude: -Math.abs(Number(item.pref_longitude)), phone: item.asgn_public_phone ?? null,
       epa_frs_id: frsId || null, epa_facility_name: item.facility_name ?? null, epa_programs: ['TRI'],
-      epa_match_confidence: 'source record', energy_factor: ENERGY_FACTORS.manufacturing,
-      opportunity_score: opportunityScore('manufacturing', null), enrichment_status: 'pending', prospect_status: 'new',
+      epa_match_confidence: 'source record', energy_factor: ENERGY_FACTORS.unknown,
+      opportunity_score: opportunityScore('unknown', null), enrichment_status: 'pending', prospect_status: 'new',
       public_records_verified_at: new Date().toISOString(),
       notes: item.parent_co_name && item.parent_co_name !== 'NA' ? `Reported parent company: ${item.parent_co_name}` : null,
     };
