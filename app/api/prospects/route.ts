@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { hydrateEmbeddedAiResearch } from '@/lib/ai-research-storage';
 import { mockProspects } from '@/lib/providers/mock';
-import { normalizeResearch } from '@/lib/providers/openai-research';
+import { normalizeResearch } from '@/lib/research-qualification';
 import { adminDb } from '@/lib/supabase';
 import type { Prospect } from '@/lib/types';
 

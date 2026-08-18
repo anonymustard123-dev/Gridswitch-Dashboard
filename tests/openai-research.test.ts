@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeResearch } from '@/lib/providers/openai-research';
+import { normalizeResearch } from '@/lib/research-qualification';
 import type { AiFacilityResearch } from '@/lib/types';
 
 const source = 'https://example.com/facility';
 
 describe('AI microgrid research normalization', () => {
+  it('tolerates research saved by the earlier schema', () => {
+    const legacy = { facility_summary: 'Legacy result', grid_switch_fit: 'moderate' } as AiFacilityResearch;
+    expect(normalizeResearch(legacy)).toEqual(legacy);
+  });
+
   it('does not treat statements that no evidence was found as positive fit evidence', () => {
     const result = normalizeResearch({
       facility_summary: 'A warehouse.',

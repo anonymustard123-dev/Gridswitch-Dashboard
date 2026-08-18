@@ -115,11 +115,16 @@ export default function Dashboard() {
   const [notice, setNotice] = useState('');
 
   const loadProspects = useCallback(async () => {
-    const response = await fetch('/api/prospects');
-    const payload = await response.json();
-    setAll(Array.isArray(payload.prospects) ? payload.prospects : []);
-    setDemo(Boolean(payload.demo));
-    if (payload.error) setNotice(payload.error);
+    try {
+      const response = await fetch('/api/prospects');
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload) throw new Error(payload?.error || 'Unable to load prospects.');
+      setAll(Array.isArray(payload.prospects) ? payload.prospects : []);
+      setDemo(Boolean(payload.demo));
+      if (payload.error) setNotice(payload.error);
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : 'Unable to load prospects.');
+    }
   }, []);
 
   useEffect(() => { void loadProspects(); }, [loadProspects]);
