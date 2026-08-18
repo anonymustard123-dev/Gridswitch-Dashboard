@@ -51,4 +51,16 @@ describe('DataForSEO prospect signals', () => {
     expect(signals.evidenceFacts).toContain('EPA Greenhouse Gas Reporting Program facility');
     expect(signals.hasPublicEvidence).toBe(true);
   });
+
+  it('promotes an EPA-verified operating site even when its directory category is weak', () => {
+    const signals = prospectSignals({
+      id: 'epa-warehouse', provider: 'dataforseo', name: 'US Nonwovens', facility_type: 'warehouse',
+      enrichment_status: 'pending', prospect_status: 'new', epa_frs_id: '110070681998',
+      epa_facility_name: 'US NONWOVENS, INC.', epa_programs: ['ICIS'],
+    });
+
+    expect(signals.tier).toBe('priority_site');
+    expect(signals.summary).toContain('Verified operating industrial site');
+    expect(signals.hasPublicEvidence).toBe(true);
+  });
 });

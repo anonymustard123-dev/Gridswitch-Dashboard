@@ -70,7 +70,7 @@ export default function Dashboard() {
   const [city, setCity] = useState('');
   const [type, setType] = useState('');
   const [tier, setTier] = useState('');
-  const [showScreening, setShowScreening] = useState(true);
+  const [showScreening, setShowScreening] = useState(false);
   const [demo, setDemo] = useState(false);
   const [searching, setSearching] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -152,9 +152,20 @@ export default function Dashboard() {
   async function findProspects() {
     setSearching(true);
     try {
+      const categoryResponse = await fetch('/api/dataforseo/categories');
+      const categoryPayload = await categoryResponse.json().catch(() => null);
+      const categories = Array.isArray(categoryPayload?.categories)
+        ? categoryPayload.categories
+          .filter((category: string) => /data center|cold storage|food processing|manufacturer|manufacturing|distribution|industrial/i.test(category))
+          .sort((a: string, b: string) => {
+            const rank = (value: string) => /data center|cold storage|food processing/i.test(value) ? 0 : /manufactur/i.test(value) ? 1 : /distribution/i.test(value) ? 2 : 3;
+            return rank(a) - rank(b);
+          })
+          .slice(0, 10)
+        : [];
       const response = await fetch('/api/prospects/search', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ centerLatitude: 40.8, centerLongitude: -77.8, radiusKm: 300, state: 'Pennsylvania', categories: ['industrial', 'manufacturing', 'warehouse'], limit: 250 }),
+        body: JSON.stringify({ centerLatitude: 40.8, centerLongitude: -77.8, radiusKm: 300, state: 'Pennsylvania', categories, limit: 250 }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Live search failed.');
@@ -217,8 +228,8 @@ export default function Dashboard() {
           <input className="control min-w-48 flex-1" placeholder="Search facility or address" value={query} onChange={(event) => setQuery(event.target.value)} />
           <select className="control" value={city} onChange={(event) => setCity(event.target.value)}><option value="">All cities</option>{[...new Set(all.map((item) => item.city).filter(Boolean))].map((item) => <option key={item}>{item}</option>)}</select>
           <select className="control" value={type} onChange={(event) => setType(event.target.value)}><option value="">All facility types</option>{[...new Set(all.map((item) => item.facility_type).filter(Boolean))].map((item) => <option key={item} value={item!}>{label(item)}</option>)}</select>
-          <select className="control" value={tier} onChange={(event) => setTier(event.target.value)}><option value="">All opportunities</option>{Object.entries(prospectSignalLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
-          <label className="flex items-center gap-2 px-2 text-sm text-slate-600"><input type="checkbox" checked={showScreening} onChange={(event) => setShowScreening(event.target.checked)} /> Include potential sites</label>
+          <select className="control" value={tier} onChange={(event) => setTier(event.target.value)}><option value="">Ranked opportunities</option>{Object.entries(prospectSignalLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
+          <label className="flex items-center gap-2 px-2 text-sm text-slate-600"><input type="checkbox" checked={showScreening} onChange={(event) => setShowScreening(event.target.checked)} /> Include unverified directory listings</label>
           <button className="control text-teal-800" disabled={verifying} onClick={() => runPublicSourceChecks(true)}>{verifying ? 'Checking public sources...' : 'Refresh public sources'}</button>
           <button className="control text-teal-800" disabled={researchingIds.length > 0} onClick={researchTop3}>{researchingIds.length ? `Researching ${researchingIds.length}...` : 'Add AI briefs to top 3'}</button>
           <button className="rounded bg-teal-700 px-4 text-sm text-white" disabled={searching} onClick={findProspects}>{searching ? 'Searching...' : 'Find Prospects'}</button>
@@ -237,11 +248,11 @@ export default function Dashboard() {
                   <td className="font-medium">{prospect.name}</td><td>{label(prospect.facility_type)}</td><td>{prospect.city}</td>
                   <td>{signals.evidenceFacts[0] || 'Public operating-site check pending'}</td>
                   <td>{signals.sourceNames.length ? signals.sourceNames.join(' · ') : 'Pending'}</td>
-                  <td className="capitalize">{prospect.ai_research?.grid_switch_fit ? `${prospect.ai_research.grid_switch_fit} priority` : prospect.ai_research_status === 'failed' ? 'Failed' : researchingIds.includes(prospect.id) ? 'Researching...' : 'Not added'}</td>
+                  <td className="capitalize">{prospect.ai_research?.grid_switch_fit && prospect.ai_research.grid_switch_fit !== 'unknown' ? `${prospect.ai_research.grid_switch_fit} priority` : prospect.ai_research_status === 'failed' ? 'Failed' : researchingIds.includes(prospect.id) ? 'Researching...' : 'Not added'}</td>
                 </tr>;
               })}</tbody>
             </table>
-            {!list.length && <div className="p-8 text-center text-sm text-slate-600">No priority sites match these filters. Enable the screening list to review lower-evidence facilities.</div>}
+            {!list.length && <div className="p-8 text-center text-sm text-slate-600">No ranked industrial opportunities match these filters. Include unverified directory listings only when you want to review raw discovery leads.</div>}
           </section>
         </div>
 

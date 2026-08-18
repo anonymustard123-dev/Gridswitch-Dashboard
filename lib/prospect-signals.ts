@@ -49,14 +49,14 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
   const score = Math.min(
     100,
     (prioritySector ? 20 : 0) +
-      (epaMatch ? 25 : 0) +
-      (depMatch ? 25 : 0) +
+      (epaMatch ? 40 : 0) +
+      (depMatch ? 40 : 0) +
       (ghgrp ? 30 : 0),
   );
   const tier: ProspectSignalTier =
     ghgrp || (prioritySector && epaMatch && depMatch)
       ? 'top_priority'
-      : (prioritySector && (epaMatch || depMatch)) || (epaMatch && depMatch)
+      : hasPublicEvidence
         ? 'priority_site'
         : prioritySector
           ? 'category_lead'
@@ -66,7 +66,7 @@ export function prospectSignals(prospect: Prospect): ProspectSignals {
     tier === 'top_priority'
       ? 'Likely high-energy industrial site based on independent EPA/DEP operating records and facility type.'
       : tier === 'priority_site'
-        ? 'Verified industrial operating site with public EPA or Pennsylvania DEP evidence.'
+        ? 'Verified operating industrial site with a public EPA or Pennsylvania DEP record.'
         : tier === 'category_lead'
           ? publicRecordsChecked
             ? 'High-energy facility category, but no exact EPA or DEP regulatory-site match was found.'
