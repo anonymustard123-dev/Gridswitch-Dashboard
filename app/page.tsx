@@ -44,6 +44,11 @@ const publicRecordFacts = (prospect: Prospect) => {
   ].filter((fact): fact is string => Boolean(fact));
 };
 
+const csvValue = (value: unknown) => {
+  const text = String(value ?? '');
+  return `"${text.replaceAll('"', '""')}"`;
+};
+
 const tierStyle: Record<ProspectSignalTier, string> = {
   top_priority: 'bg-emerald-100 text-emerald-800',
   priority_site: 'bg-teal-100 text-teal-800',
@@ -197,6 +202,39 @@ export default function Dashboard() {
     }
   }
 
+  function exportCsv() {
+    const headers = [
+      'Facility', 'Address', 'City', 'State', 'Postal code', 'Facility type', 'Pipeline tier', 'Microgrid score',
+      'What the facility does - points', 'What the facility does - weight', 'What the facility does - value',
+      'Proof it is operating - points', 'Proof it is operating - weight', 'Proof it is operating - value',
+      'Physical site size - points', 'Physical site size - weight', 'Physical site size - value',
+      'Public-record match - points', 'Public-record match - weight', 'Public-record match - value',
+      'Company behind the site - points', 'Company behind the site - weight', 'Company behind the site - value',
+      'EPA Registry ID', 'EPA programs', 'Building area (sq ft)', 'Parent company / notes', 'Phone', 'Website',
+    ];
+    const rows = list.map((prospect) => {
+      const profile = microgridProfile(prospect, scoreWeights);
+      const signals = signalFor(prospect, scoreWeights);
+      return [
+        prospect.name, prospect.address, prospect.city, prospect.state, prospect.postal_code, label(prospect.facility_type), prospectSignalLabels[signals.tier], profile.score,
+        profile.processPoints, scoreWeights.process, profile.processDetail,
+        profile.operatingPoints, scoreWeights.operating, profile.operatingDetail,
+        profile.scalePoints, scoreWeights.scale, profile.scaleDetail,
+        profile.evidencePoints, scoreWeights.evidence, profile.evidenceDetail,
+        profile.corporatePoints, scoreWeights.corporate, profile.corporateDetail,
+        prospect.epa_frs_id, prospect.epa_programs?.join(', '), prospect.building_sqft, prospect.notes, prospect.phone, prospect.website,
+      ].map(csvValue).join(',');
+    });
+    const csv = [headers.map(csvValue).join(','), ...rows].join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `gridswitch-prospects-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setNotice(`Exported ${list.length} filtered prospects with the current scoring weights.`);
+  }
+
   async function researchOne(prospect: Prospect) {
     setResearchErrors((errors) => ({ ...errors, [prospect.id]: '' }));
     setResearchingIds((ids) => [...new Set([...ids, prospect.id])]);
@@ -261,6 +299,7 @@ export default function Dashboard() {
           <label className="flex items-center gap-2 px-2 text-sm text-slate-600"><input type="checkbox" checked={showScreening} onChange={(event) => setShowScreening(event.target.checked)} /> Include unverified directory listings</label>
           <button className="control text-teal-800" disabled={importingPublic} onClick={importPublicPipeline}>{importingPublic ? 'Refreshing EPA data...' : 'Refresh EPA records & scores'}</button>
           <button className="control text-teal-800" disabled={researchingIds.length > 0} onClick={researchTop3}>{researchingIds.length ? `Researching ${researchingIds.length}...` : 'Add AI briefs to top 3'}</button>
+          <button className="control border-emerald-200 font-semibold text-emerald-800" disabled={!list.length} onClick={exportCsv}>Export CSV</button>
           <button className="rounded bg-teal-700 px-4 text-sm text-white" disabled={searching} onClick={findProspects}>{searching ? 'Searching...' : 'Find Prospects'}</button>
         </div>
         {notice && <p className="mb-3 text-sm text-teal-800">{notice}</p>}
