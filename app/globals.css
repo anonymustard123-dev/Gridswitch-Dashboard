@@ -98,4 +98,8 @@ tr:hover td { background: #f2faf5; }
 .dashboard-dark tr:hover td { background: #173b27 !important; }
 .dashboard-dark .bg-teal-50 { background: #194b30 !important; }
 .dashboard-dark .bg-emerald-50\/50 { background: #163a27 !important; }
+.dashboard-dark .score-metric-card b {
+  color: #a7f3c3 !important;
+  text-shadow: 0 1px 10px rgba(74, 222, 128, .18);
+}
 .dashboard-dark .score-metric-card:hover { border-color: #63dc94 !important; }
