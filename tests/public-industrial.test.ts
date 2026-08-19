@@ -45,7 +45,7 @@ describe('public industrial pipeline', () => {
       pref_latitude: 42.1, pref_longitude: 80.1, fac_closed_ind: '0',
     }], {
       triProfilesByFacilityId: new Map([['PATRI009', {
-        naics: '325110', industrySector: 'Chemical manufacturing', productionWasteLbs: 12_345_678, productionRatio: 1.2,
+        naics: '325110', industrySector: 'Chemical manufacturing', productionWasteLbs: 12_345_678, productionRatio: 1.2, reportingYear: 2024,
       }]]),
       ghgrpEmissionsByFacilityId: new Map([['9', { emissions: 512_345, year: 2023 }]]),
     });

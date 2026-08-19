@@ -28,8 +28,8 @@ const triUrl = 'https://data.epa.gov/efservice/tri_facility/STATE_ABBR/PA/ROWS/0
 // The annual TRI Basic file contains NAICS and production-related reporting for
 // every Pennsylvania TRI facility. One bulk download is substantially more
 // reliable than hundreds of per-facility requests during a dashboard refresh.
-const TRI_BULK_REPORTING_YEAR = 2024;
-const triBulkUrl = `https://data.epa.gov/efservice/downloads/tri/mv_tri_basic_download/${TRI_BULK_REPORTING_YEAR}_PA/csv`;
+const TRI_BULK_REPORTING_YEARS = [2024, 2023, 2022] as const;
+const triBulkUrl = (year: number) => `https://data.epa.gov/efservice/downloads/tri/mv_tri_basic_download/${year}_PA/csv`;
 const usableCoordinate = (latitude?: number | null, longitude?: number | null) =>
   Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) && Number(latitude) !== 0 && Number(longitude) !== 0;
 
@@ -48,6 +48,7 @@ type TriBulkProfile = {
   industrySector: string | null;
   productionWasteLbs: number;
   productionRatio: number | null;
+  reportingYear: number;
 };
 
 const triNaics = (item: TriFacility) => item.primary_naics_code || item.naics_code || item.industry_sector_code || null;
@@ -150,7 +151,7 @@ export function normalizePublicIndustrialRecords(
       industry_sector: triProfile?.industrySector || item.industry_sector,
       production_ratio_or_activity_index: triProfile?.productionRatio ?? item.production_ratio_or_activity_index,
       reported_production_waste_lbs: triProfile?.productionWasteLbs ?? null,
-      tri_reporting_year: triProfile ? 2024 : null,
+      tri_reporting_year: triProfile?.reportingYear ?? null,
     });
   }
 
@@ -237,43 +238,55 @@ const csvNumber = (value: string | undefined) => {
 };
 
 /**
- * Retrieves the EPA's annual Pennsylvania TRI Basic file once, then keeps only
- * the facility IDs in our active physical-site universe. TRI repeats a facility
- * on multiple chemical rows, so production-related quantities are summed.
+ * Retrieves the three most recent Pennsylvania TRI Basic files, keeping the
+ * newest available record for each active facility. TRI repeats a facility on
+ * multiple chemical rows, so production-related quantities are summed.
  */
 async function fetchPennsylvaniaTriBulkProfiles(tri: TriFacility[]): Promise<Map<string, TriBulkProfile>> {
   const facilityIds = new Set(tri.map((item) => String(item.tri_facility_id ?? '').trim()).filter(Boolean));
   if (!facilityIds.size) return new Map();
 
   try {
-    const response = await fetch(triBulkUrl, { signal: AbortSignal.timeout(45_000) });
-    if (!response.ok) return new Map();
-    const rows = parseCsvRows(await response.text());
-    const [headers, ...data] = rows;
-    if (!headers) return new Map();
-    const indexByHeader = new Map(headers.map((header, index) => [header.trim(), index]));
-    const column = (name: string) => indexByHeader.get(name);
-    const triIdColumn = column('2. TRIFD');
-    const naicsColumn = column('30. PRIMARY NAICS');
-    const sectorColumn = column('23. INDUSTRY SECTOR');
-    const productionWasteColumn = column('119. PRODUCTION WSTE (8.1-8.7)');
-    const productionRatioColumn = column('122. 8.9 - PRODUCTION RATIO') ?? column('121. PROD_RATIO_OR_ ACTIVITY');
-    if (triIdColumn === undefined) return new Map();
-
     const profiles = new Map<string, TriBulkProfile>();
-    for (const row of data) {
-      const facilityId = row[triIdColumn]?.trim();
-      if (!facilityId || !facilityIds.has(facilityId)) continue;
-      const existing = profiles.get(facilityId) ?? { naics: '', industrySector: null, productionWasteLbs: 0, productionRatio: null };
-      const naics = naicsColumn === undefined ? '' : row[naicsColumn]?.trim() ?? '';
-      const sector = sectorColumn === undefined ? '' : row[sectorColumn]?.trim() ?? '';
-      const ratio = productionRatioColumn === undefined ? 0 : csvNumber(row[productionRatioColumn]);
-      profiles.set(facilityId, {
-        naics: existing.naics || naics,
-        industrySector: existing.industrySector || sector || null,
-        productionWasteLbs: existing.productionWasteLbs + (productionWasteColumn === undefined ? 0 : Math.max(0, csvNumber(row[productionWasteColumn]))),
-        productionRatio: Math.max(existing.productionRatio ?? 0, ratio) || null,
-      });
+    const files = await Promise.all(TRI_BULK_REPORTING_YEARS.map(async (year) => {
+      try {
+        const response = await fetch(triBulkUrl(year), { signal: AbortSignal.timeout(45_000) });
+        return response.ok ? { year, rows: parseCsvRows(await response.text()) } : null;
+      } catch {
+        return null;
+      }
+    }));
+
+    for (const file of files) {
+      if (!file) continue;
+      const [headers, ...data] = file.rows;
+      if (!headers) continue;
+      const indexByHeader = new Map(headers.map((header, index) => [header.trim(), index]));
+      const column = (name: string) => indexByHeader.get(name);
+      const triIdColumn = column('2. TRIFD');
+      const naicsColumn = column('30. PRIMARY NAICS');
+      const sectorColumn = column('23. INDUSTRY SECTOR');
+      const productionWasteColumn = column('119. PRODUCTION WSTE (8.1-8.7)');
+      const productionRatioColumn = column('122. 8.9 - PRODUCTION RATIO') ?? column('121. PROD_RATIO_OR_ ACTIVITY');
+      if (triIdColumn === undefined) continue;
+
+      for (const row of data) {
+        const facilityId = row[triIdColumn]?.trim();
+        if (!facilityId || !facilityIds.has(facilityId)) continue;
+        const existing = profiles.get(facilityId);
+        // Preserve the newest available annual reporting record for a facility.
+        if (existing && existing.reportingYear > file.year) continue;
+        const naics = naicsColumn === undefined ? '' : row[naicsColumn]?.trim() ?? '';
+        const sector = sectorColumn === undefined ? '' : row[sectorColumn]?.trim() ?? '';
+        const ratio = productionRatioColumn === undefined ? 0 : csvNumber(row[productionRatioColumn]);
+        profiles.set(facilityId, {
+          naics: existing?.naics || naics,
+          industrySector: existing?.industrySector || sector || null,
+          productionWasteLbs: (existing?.reportingYear === file.year ? existing.productionWasteLbs : 0) + (productionWasteColumn === undefined ? 0 : Math.max(0, csvNumber(row[productionWasteColumn]))),
+          productionRatio: Math.max(existing?.reportingYear === file.year ? existing.productionRatio ?? 0 : 0, ratio) || null,
+          reportingYear: file.year,
+        });
+      }
     }
     return profiles;
   } catch {

@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import { fetchPennsylvaniaPublicIndustrialRecords } from '@/lib/providers/public-industrial';
 import { adminDb } from '@/lib/supabase';
 
-export const maxDuration = 60;
+// The first full EPA refresh can contain thousands of physical sites. Vercel
+// supports a longer serverless route here; this is still a user-triggered,
+// synchronous operation rather than a background job.
+export const maxDuration = 300;
 
 export async function POST() {
   const db = adminDb();
@@ -11,15 +14,18 @@ export async function POST() {
     const imported = await fetchPennsylvaniaPublicIndustrialRecords();
     let completed = 0;
     const failed: string[] = [];
-    for (let index = 0; index < imported.rows.length; index += 100) {
-      const batch = imported.rows.slice(index, index + 100);
+    for (let index = 0; index < imported.rows.length; index += 500) {
+      const batch = imported.rows.slice(index, index + 500);
       const { error } = await db.from('prospects').upsert(batch, { onConflict: 'provider,provider_place_id' });
       if (error) {
-        // A malformed upstream record must not discard the other 99 sites.
-        for (const row of batch) {
-          const { error: rowError } = await db.from('prospects').upsert([row], { onConflict: 'provider,provider_place_id' });
-          if (rowError) failed.push(rowError.message);
-          else completed += 1;
+        // Keep recovery bounded: isolate a bad record without turning a refresh
+        // into hundreds of sequential database calls.
+        console.error('EPA public-record batch upsert failed', { batchSize: batch.length, message: error.message });
+        for (let retryIndex = 0; retryIndex < batch.length; retryIndex += 25) {
+          const retryBatch = batch.slice(retryIndex, retryIndex + 25);
+          const { error: retryError } = await db.from('prospects').upsert(retryBatch, { onConflict: 'provider,provider_place_id' });
+          if (retryError) failed.push(retryError.message);
+          else completed += retryBatch.length;
         }
       } else {
         completed += batch.length;
