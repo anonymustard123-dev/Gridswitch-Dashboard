@@ -1,4 +1,4 @@
-import { microgridProfile } from '@/lib/microgrid-profile';
+import { microgridProfile, type ScoreWeights } from '@/lib/microgrid-profile';
 import type { Prospect } from '@/lib/types';
 
 export type ProspectSignalTier = 'top_priority' | 'priority_site' | 'industrial_lead' | 'category_lead' | 'potential_site';
@@ -18,8 +18,8 @@ export interface ProspectSignals {
  * facilities on observable operating-site evidence, so a generic directory
  * listing cannot outrank a corroborated industrial facility.
  */
-export function prospectSignals(prospect: Prospect): ProspectSignals {
-  const profile = microgridProfile(prospect);
+export function prospectSignals(prospect: Prospect, weights?: ScoreWeights): ProspectSignals {
+  const profile = microgridProfile(prospect, weights);
   const epaMatch = Boolean(prospect.epa_frs_id);
   const depMatch = Boolean(prospect.pa_dep_facility_id);
   const ghgrp = Boolean(prospect.epa_ghgrp_match);

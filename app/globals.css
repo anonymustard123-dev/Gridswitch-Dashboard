@@ -1,2 +1,59 @@
 @import "tailwindcss";
-:root{--navy:#101d29;--accent:#0f766e}*{box-sizing:border-box}body{margin:0;background:#f4f6f7;color:#17212b;font-family:Arial,Helvetica,sans-serif}.score{font-weight:700;border-radius:999px;padding:3px 8px;font-size:12px}.score-high{background:#d1fae5;color:#065f46}.score-mid{background:#fef3c7;color:#92400e}.score-low{background:#e5e7eb;color:#374151}th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#667085;text-align:left;padding:10px 12px}td{padding:11px 12px;border-top:1px solid #e5e7eb;font-size:13px}.control{border:1px solid #d1d5db;border-radius:6px;background:white;padding:8px;font-size:13px}.card{background:white;border:1px solid #e5e7eb;border-radius:8px}
+
+:root {
+  --ink: #10231d;
+  --brand: #0b8f45;
+  --brand-deep: #046b35;
+  --mist: #f3f8f4;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 90% -20%, rgba(18, 158, 78, .11), transparent 34rem),
+    var(--mist);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button, input, select { font: inherit; }
+button { transition: background-color .15s ease, border-color .15s ease, transform .15s ease; }
+button:not(:disabled):hover { transform: translateY(-1px); }
+
+.control {
+  border: 1px solid #d7e5dc;
+  border-radius: .7rem;
+  background: #fff;
+  padding: .62rem .75rem;
+  font-size: .875rem;
+  color: #294238;
+}
+
+.control:focus { outline: 2px solid #83d8a7; outline-offset: 1px; }
+
+.card {
+  background: rgba(255, 255, 255, .96);
+  border: 1px solid #dce9e1;
+  border-radius: 1rem;
+}
+
+th {
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #5d7668;
+  text-align: left;
+  padding: .9rem .85rem;
+}
+
+td {
+  padding: 1rem .85rem;
+  border-top: 1px solid #e8f0eb;
+  font-size: .875rem;
+  color: #1b3327;
+}
+
+tr:hover td { background: #f2faf5; }

@@ -5,21 +5,22 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { useEffect, useRef } from 'react';
 import type { Prospect } from '@/lib/types';
 import { prospectSignals } from '@/lib/prospect-signals';
+import type { ScoreWeights } from '@/lib/microgrid-profile';
 
-function featureCollection(prospects: Prospect[]): GeoJSON.FeatureCollection {
+function featureCollection(prospects: Prospect[], weights?: ScoreWeights): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: prospects
       .filter((prospect) => prospect.latitude != null && prospect.longitude != null)
       .map((prospect) => ({
         type: 'Feature' as const,
-        properties: { id: prospect.id, score: prospectSignals(prospect).score },
+        properties: { id: prospect.id, score: prospectSignals(prospect, weights).score },
         geometry: { type: 'Point' as const, coordinates: [prospect.longitude!, prospect.latitude!] },
       })),
   };
 }
 
-export default function ProspectMap({ prospects, onSelect, selected }: { prospects: Prospect[]; onSelect: (prospect: Prospect) => void; selected?: Prospect | null }) {
+export default function ProspectMap({ prospects, onSelect, selected, weights }: { prospects: Prospect[]; onSelect: (prospect: Prospect) => void; selected?: Prospect | null; weights?: ScoreWeights }) {
   const node = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const prospectsRef = useRef(prospects);
@@ -33,7 +34,7 @@ export default function ProspectMap({ prospects, onSelect, selected }: { prospec
     instance.addControl(new mapboxgl.NavigationControl());
     instance.addControl(new mapboxgl.FullscreenControl());
     instance.on('load', () => {
-      const initialData = featureCollection(prospectsRef.current);
+      const initialData = featureCollection(prospectsRef.current, weights);
       instance.addSource('facilities', { type: 'geojson', data: initialData, cluster: true, clusterMaxZoom: 14, clusterRadius: 45 });
       instance.addLayer({ id: 'clusters', type: 'circle', source: 'facilities', filter: ['has', 'point_count'], paint: { 'circle-color': '#0f766e', 'circle-radius': ['step', ['get', 'point_count'], 18, 10, 23, 30, 28] } });
       instance.addLayer({ id: 'cluster-count', type: 'symbol', source: 'facilities', filter: ['has', 'point_count'], layout: { 'text-field': '{point_count_abbreviated}', 'text-size': 12 }, paint: { 'text-color': '#fff' } });
@@ -67,13 +68,13 @@ export default function ProspectMap({ prospects, onSelect, selected }: { prospec
     const instance = map.current;
     const source = instance?.getSource('facilities') as mapboxgl.GeoJSONSource | undefined;
     if (!source) return;
-    source.setData(featureCollection(prospects));
+    source.setData(featureCollection(prospects, weights));
     if (valid.length) {
       const bounds = new mapboxgl.LngLatBounds();
       valid.forEach((prospect) => bounds.extend([prospect.longitude!, prospect.latitude!]));
       instance?.fitBounds(bounds, { padding: 40, maxZoom: 11, duration: 600 });
     }
-  }, [prospects]);
+  }, [prospects, weights]);
 
   useEffect(() => { if (selected?.longitude != null && selected.latitude != null) map.current?.flyTo({ center: [selected.longitude, selected.latitude], zoom: 13 }); }, [selected]);
   if (!process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN) return <div className="h-full grid place-items-center text-center p-8 text-slate-500">Mapbox token not configured.<br /><small>Add NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN to show the interactive map.</small></div>;

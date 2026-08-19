@@ -11,8 +11,29 @@ export interface MicrogridProfile {
   scalePoints: number;
   evidencePoints: number;
   corporatePoints: number;
+  processDetail: string;
+  operatingDetail: string;
+  scaleDetail: string;
+  evidenceDetail: string;
+  corporateDetail: string;
   reasons: string[];
 }
+
+export type ScoreWeights = {
+  process: number;
+  operating: number;
+  scale: number;
+  evidence: number;
+  corporate: number;
+};
+
+export const DEFAULT_SCORE_WEIGHTS: ScoreWeights = {
+  process: 30,
+  operating: 34,
+  scale: 15,
+  evidence: 10,
+  corporate: 11,
+};
 
 type PublicRaw = {
   ghgrp?: {
@@ -70,7 +91,9 @@ function numberOrZero(value: unknown) {
   return Number.isFinite(result) && result > 0 ? result : 0;
 }
 
-export function microgridProfile(prospect: Prospect): MicrogridProfile {
+const scaled = (value: number, baseMax: number, weight: number) => Math.round((value / baseMax) * weight);
+
+export function microgridProfile(prospect: Prospect, weights: ScoreWeights = DEFAULT_SCORE_WEIGHTS): MicrogridProfile {
   const raw = (prospect.public_records_raw ?? {}) as PublicRaw;
   const ghgrp = raw.ghgrp;
   const tri = raw.tri;
@@ -81,17 +104,24 @@ export function microgridProfile(prospect: Prospect): MicrogridProfile {
   const hasDep = Boolean(prospect.pa_dep_facility_id);
   const subparts = String(ghgrp?.reported_subparts ?? '').split(',').map((part) => part.trim()).filter(Boolean);
   const processSubparts = subparts.filter((part) => ['AA', 'C', 'F', 'G', 'H', 'N', 'P', 'Q', 'S'].includes(part));
-  const processPoints = profile.points;
-  const operatingPoints = isGhgrp ? 34 : isTri ? 23 : hasFrs || hasDep ? 14 : 0;
-  const scalePoints = Math.min(15, (processSubparts.length ? 5 : 0) + (numberOrZero(prospect.building_sqft) >= 500_000 ? 10 : numberOrZero(prospect.building_sqft) >= 100_000 ? 6 : 0));
-  const evidencePoints = (hasFrs ? 5 : 0) + (hasDep ? 3 : 0) + (isTri ? 2 : 0);
+  const baseProcessPoints = profile.points;
+  const baseOperatingPoints = isGhgrp ? 34 : isTri ? 23 : hasFrs || hasDep ? 14 : 0;
+  const buildingArea = numberOrZero(prospect.building_sqft);
+  const baseScalePoints = Math.min(15, (processSubparts.length ? 5 : 0) + (buildingArea >= 500_000 ? 10 : buildingArea >= 100_000 ? 6 : 0));
+  const baseEvidencePoints = (hasFrs ? 5 : 0) + (hasDep ? 3 : 0) + (isTri ? 2 : 0);
   const parentName = String(ghgrp?.parent_company || tri?.parent_co_name || '').trim();
   const hasParent = Boolean(parentName && !['NA', 'N/A', 'NONE', 'UNKNOWN'].includes(parentName.toUpperCase()))
     || Boolean(prospect.notes?.match(/reported parent company/i));
   // A named parent is not proof of budget approval, but it is a materially
   // better commercial starting point than an unowned directory listing.
-  const corporatePoints = hasParent ? 11 : prospect.website || prospect.phone ? 5 : 0;
-  const score = Math.min(100, processPoints + operatingPoints + scalePoints + evidencePoints + corporatePoints);
+  const baseCorporatePoints = hasParent ? 11 : prospect.website || prospect.phone ? 5 : 0;
+  const processPoints = scaled(baseProcessPoints, 30, weights.process);
+  const operatingPoints = scaled(baseOperatingPoints, 34, weights.operating);
+  const scalePoints = scaled(baseScalePoints, 15, weights.scale);
+  const evidencePoints = scaled(baseEvidencePoints, 10, weights.evidence);
+  const corporatePoints = scaled(baseCorporatePoints, 11, weights.corporate);
+  const totalWeight = Object.values(weights).reduce((total, weight) => total + weight, 0) || 1;
+  const score = Math.min(100, Math.round(((processPoints + operatingPoints + scalePoints + evidencePoints + corporatePoints) / totalWeight) * 100));
   const fit: MicrogridFit = score >= 75 ? 'exceptional' : score >= 60 ? 'strong' : score >= 45 ? 'qualified' : score >= 28 ? 'developing' : 'discovery';
   const reasons = [
     `${profile.label}${ghgrp?.naics_code ? ` (NAICS ${ghgrp.naics_code})` : ''}`,
@@ -101,7 +131,15 @@ export function microgridProfile(prospect: Prospect): MicrogridProfile {
     hasParent ? 'Reported parent company available' : null,
   ].filter((reason): reason is string => Boolean(reason));
 
-  return { score, fit, processLabel: profile.label, processPoints, operatingPoints, scalePoints, evidencePoints, corporatePoints, reasons };
+  const processDetail = `${profile.label}${ghgrp?.naics_code ? ` (NAICS ${ghgrp.naics_code})` : ''}`;
+  const operatingDetail = isGhgrp ? 'EPA GHGRP direct-emitter record' : isTri ? 'EPA TRI industrial-facility record' : hasFrs || hasDep ? 'EPA / PA DEP operating-site record' : 'No public operating record found yet';
+  const scaleDetail = buildingArea >= 100_000
+    ? `${Math.round(buildingArea).toLocaleString()} sq ft known building area${processSubparts.length ? ` + GHGRP subparts ${processSubparts.join(', ')}` : ''}`
+    : processSubparts.length ? `GHGRP reporting subparts: ${processSubparts.join(', ')}` : 'No building-area data available';
+  const evidenceDetail = [hasFrs ? 'EPA Registry match' : null, hasDep ? 'PA DEP match' : null, isTri ? 'TRI record' : null].filter(Boolean).join(' + ') || 'No exact public-record match yet';
+  const corporateDetail = hasParent ? 'Reported parent company available' : prospect.website || prospect.phone ? 'Direct facility contact available' : 'No parent company or direct contact found';
+
+  return { score, fit, processLabel: profile.label, processPoints, operatingPoints, scalePoints, evidencePoints, corporatePoints, processDetail, operatingDetail, scaleDetail, evidenceDetail, corporateDetail, reasons };
 }
 
 export const microgridFitLabels: Record<MicrogridFit, string> = {
