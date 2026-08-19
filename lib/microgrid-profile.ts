@@ -50,6 +50,10 @@ export const SCORE_METRIC_GUIDES: Record<keyof ScoreWeights, { title: string; de
       '25: GHGRP direct emitter with large reported annual emissions',
       '20–23: GHGRP direct emitter; a facility required to report significant industrial emissions',
       '12–18: TRI reporting facility, with more points when production-related reporting is available',
+      '18: TRI facility with at least 10 million pounds of disclosed production-related reporting',
+      '16: TRI facility with 1 to 10 million pounds of disclosed production-related reporting',
+      '15: TRI facility with a disclosed production-related reporting signal',
+      '12: TRI reporting facility without a disclosed production-related total',
       '5: EPA FRS or Pennsylvania DEP operating record only',
       '0: No qualifying public operating record',
     ],
@@ -99,6 +103,8 @@ type PublicRaw = {
     industry_sector_code?: string | null;
     industry_sector?: string | null;
     production_ratio_or_activity_index?: number | string | null;
+    reported_production_waste_lbs?: number | string | null;
+    tri_reporting_year?: number | string | null;
   };
 };
 
@@ -173,10 +179,11 @@ export function microgridProfile(prospect: Prospect, weights: ScoreWeights = DEF
   const hasFrsOrDep = Boolean(prospect.epa_frs_id || prospect.pa_dep_facility_id);
   const emissions = ghgrpEmissions(ghgrp);
   const triProduction = numberOrZero(tri?.production_ratio_or_activity_index);
+  const triProductionWaste = numberOrZero(tri?.reported_production_waste_lbs);
   const baseProcessPoints = profile.points;
   const baseOperatingPoints = isGhgrp
     ? emissions >= 500_000 ? 25 : emissions >= 100_000 ? 23 : 20
-    : isTri ? triProduction > 1.15 ? 18 : triProduction > 0 ? 15 : 12
+    : isTri ? triProductionWaste >= 10_000_000 ? 18 : triProductionWaste >= 1_000_000 ? 16 : triProductionWaste > 0 || triProduction > 0 ? 15 : 12
     : hasFrsOrDep ? 5 : 0;
   const buildingArea = Math.max(numberOrZero(prospect.building_sqft), numberOrZero(prospect.building_footprint_sqft));
   const parcelAcres = numberOrZero(prospect.parcel_acres);
@@ -198,7 +205,9 @@ export function microgridProfile(prospect: Prospect, weights: ScoreWeights = DEF
   const naics = ghgrp?.naics_code || triNaics;
   const operatingDetail = isGhgrp
     ? emissions ? `GHGRP direct emitter; ${Math.round(emissions).toLocaleString()} reported metric tons CO₂e${ghgrp?.emissions_reporting_year ? ` in ${ghgrp.emissions_reporting_year}` : ''}` : 'GHGRP direct-emitter facility record'
-    : isTri ? triProduction ? `TRI industrial reporting; production/activity indicator ${triProduction}` : 'TRI industrial-facility record'
+    : isTri ? triProductionWaste
+      ? `TRI industrial reporting; ${Math.round(triProductionWaste).toLocaleString()} pounds of disclosed production-related reporting${tri?.tri_reporting_year ? ` in ${tri.tri_reporting_year}` : ''}`
+      : triProduction ? `TRI industrial reporting; production/activity indicator ${triProduction}` : 'TRI industrial-facility record'
     : hasFrsOrDep ? 'EPA FRS or Pennsylvania DEP operating-site record' : 'No qualifying public operating record';
   const scaleDetail = buildingArea
     ? `${Math.round(buildingArea).toLocaleString()} sq ft of known building or footprint area${parcelAcres ? `; ${parcelAcres.toLocaleString()} acres` : ''}`
@@ -209,6 +218,7 @@ export function microgridProfile(prospect: Prospect, weights: ScoreWeights = DEF
   const reasons = [
     `${profile.label}${naics ? ` (NAICS ${naics})` : ''}`,
     isGhgrp ? 'EPA GHGRP direct-emitter record' : isTri ? 'EPA TRI industrial-facility record' : hasFrsOrDep ? 'EPA / PA DEP operating-site record' : null,
+    isTri && triProductionWaste > 0 ? `TRI production-related reporting: ${Math.round(triProductionWaste).toLocaleString()} lbs${tri?.tri_reporting_year ? ` (${tri.tri_reporting_year})` : ''}` : null,
     buildingArea >= 50_000 ? `Known building/footprint area: ${Math.round(buildingArea).toLocaleString()} sq ft` : parcelAcres >= 3 ? `Known industrial parcel: ${parcelAcres} acres` : null,
     parentName ? `Reported parent company: ${parentName}` : null,
   ].filter((reason): reason is string => Boolean(reason));

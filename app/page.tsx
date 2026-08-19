@@ -42,6 +42,8 @@ const publicRecordFacts = (prospect: Prospect) => {
     tri?.tri_facility_id ? `TRI facility ID: ${tri.tri_facility_id}` : null,
     tri?.primary_naics_code || tri?.naics_code || tri?.industry_sector_code ? `TRI NAICS: ${tri.primary_naics_code || tri.naics_code || tri.industry_sector_code}` : null,
     tri?.industry_sector ? `TRI industry sector: ${tri.industry_sector}` : null,
+    tri?.reported_production_waste_lbs ? `TRI production-related reporting: ${Number(tri.reported_production_waste_lbs).toLocaleString()} pounds${tri.tri_reporting_year ? ` (${tri.tri_reporting_year})` : ''}` : null,
+    tri?.production_ratio_or_activity_index ? `TRI production/activity indicator: ${tri.production_ratio_or_activity_index}` : null,
     tri?.parent_co_name && tri.parent_co_name !== 'NA' ? `Reported parent company: ${tri.parent_co_name}` : null,
   ].filter((fact): fact is string => Boolean(fact));
 };
@@ -157,7 +159,7 @@ export default function Dashboard() {
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error || 'Public-record import failed.');
       const sources = result?.sourceCounts
-        ? ` (${result.sourceCounts.ghgrp} GHGRP records, ${result.sourceCounts.tri} TRI records; ${result.sourceCounts.triNaics ?? 0} NAICS matches; ${result.sourceCounts.ghgrpEmissions ?? 0} reported-emissions matches before site merging)`
+        ? ` (${result.sourceCounts.ghgrp} GHGRP records, ${result.sourceCounts.tri} TRI records; ${result.sourceCounts.triProfiles ?? 0} TRI profiles; ${result.sourceCounts.ghgrpEmissions ?? 0} reported-emissions matches before site merging)`
         : '';
       setNotice(`Public industrial pipeline refreshed: ${result.imported ?? 0} physical sites${sources}.`);
       await loadProspects();
@@ -328,7 +330,7 @@ export default function Dashboard() {
                 const signals = signalFor(prospect, scoreWeights);
                 const profile = microgridProfile(prospect, scoreWeights);
                 return <tr className={`cursor-pointer hover:bg-slate-50 ${selected?.id === prospect.id ? 'bg-teal-50' : ''}`} key={prospect.id} onClick={() => setSelected(prospect)}>
-                  <td><span className={`rounded-full px-2 py-1 text-xs font-semibold ${tierStyle[signals.tier]}`}>{prospectSignalLabels[signals.tier]} · {signals.score}</span></td>
+                  <td className="min-w-40"><span className={`priority-pill rounded-full px-2 py-1 text-xs font-semibold ${tierStyle[signals.tier]}`}>{prospectSignalLabels[signals.tier]} · {signals.score}</span></td>
                   <td className="font-medium">{prospect.name}</td><td>{label(prospect.facility_type)}</td><td>{prospect.city}</td>
                   <td>{profile.reasons[0] || signals.evidenceFacts[0] || 'Public operating-site check pending'}</td>
                   <td>{signals.sourceNames.length ? signals.sourceNames.join(' · ') : 'Pending'}</td>
@@ -342,7 +344,7 @@ export default function Dashboard() {
         {selected && selectedSignals && <aside className="fixed right-0 top-0 z-10 h-full w-[500px] overflow-auto bg-white p-6 shadow-2xl">
           <button className="float-right text-slate-500" onClick={() => setSelected(null)}>Close</button>
           <h2 className="pr-12 text-xl font-bold">{selected.name}</h2>
-          <p className="mt-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${tierStyle[selectedSignals.tier]}`}>{prospectSignalLabels[selectedSignals.tier]} · {selectedSignals.score}/100</span></p>
+          <p className="mt-2"><span className={`priority-pill rounded-full px-2 py-1 text-xs font-semibold ${tierStyle[selectedSignals.tier]}`}>{prospectSignalLabels[selectedSignals.tier]} · {selectedSignals.score}/100</span></p>
           <p className="mt-4 text-sm">{selected.address}, {selected.city}, {selected.state} {selected.postal_code}</p>
           <section className="mt-6">
             <h3 className="font-semibold">Microgrid opportunity score</h3>

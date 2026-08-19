@@ -56,6 +56,14 @@ td {
   color: #1b3327;
 }
 
+.priority-pill {
+  display: inline-flex;
+  min-width: 9.5rem;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
 tr:hover td { background: #f2faf5; }
 
 .score-metric-card { width: 100%; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }

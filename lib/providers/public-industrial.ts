@@ -16,11 +16,6 @@ type TriFacility = {
   primary_naics_code?: string | null; naics_code?: string | null; industry_sector_code?: string | null; industry_sector?: string | null;
   production_ratio_or_activity_index?: number | string | null;
 };
-type TriNaicsRecord = {
-  tri_facility_id?: string;
-  naics_code?: string | null;
-  primary_ind?: string | null;
-};
 type GhgrpEmissionRecord = {
   facility_id?: number | string;
   year?: number | string;
@@ -30,17 +25,29 @@ type GhgrpEmissionRecord = {
 const timeoutFetch = (url: string) => fetch(url, { signal: AbortSignal.timeout(25_000) });
 const ghgrpUrl = 'https://data.epa.gov/efservice/PUB_DIM_FACILITY/STATE/=/PA/ROWS/0:999/JSON';
 const triUrl = 'https://data.epa.gov/efservice/tri_facility/STATE_ABBR/PA/ROWS/0:1999/JSON';
+// The annual TRI Basic file contains NAICS and production-related reporting for
+// every Pennsylvania TRI facility. One bulk download is substantially more
+// reliable than hundreds of per-facility requests during a dashboard refresh.
+const TRI_BULK_REPORTING_YEAR = 2024;
+const triBulkUrl = `https://data.epa.gov/efservice/downloads/tri/mv_tri_basic_download/${TRI_BULK_REPORTING_YEAR}_PA/csv`;
 const usableCoordinate = (latitude?: number | null, longitude?: number | null) =>
   Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) && Number(latitude) !== 0 && Number(longitude) !== 0;
 
 export interface PublicIndustrialImport {
   rows: Partial<Prospect>[];
-  sourceCounts: { ghgrp: number; tri: number; triNaics?: number; ghgrpEmissions?: number };
+  sourceCounts: { ghgrp: number; tri: number; triProfiles?: number; ghgrpEmissions?: number };
 }
 
 export type PublicIndustrialEnrichment = {
-  triNaicsByFacilityId?: Map<string, string>;
+  triProfilesByFacilityId?: Map<string, TriBulkProfile>;
   ghgrpEmissionsByFacilityId?: Map<string, { emissions: number; year: number }>;
+};
+
+type TriBulkProfile = {
+  naics: string;
+  industrySector: string | null;
+  productionWasteLbs: number;
+  productionRatio: number | null;
 };
 
 const triNaics = (item: TriFacility) => item.primary_naics_code || item.naics_code || item.industry_sector_code || null;
@@ -119,10 +126,11 @@ export function normalizePublicIndustrialRecords(
     const triId = String(item.tri_facility_id ?? '').trim();
     if (!triId) continue;
     const key = frsId ? `frs:${frsId}` : `tri:${triId}`;
-    // TRI primary NAICS is joined from EPA's submission-NAICS table when available.
-    const naics = enrichment.triNaicsByFacilityId?.get(triId) || triNaics(item);
+    // EPA's bulk TRI file carries the primary NAICS omitted from the facility table.
+    const triProfile = enrichment.triProfilesByFacilityId?.get(triId);
+    const naics = triProfile?.naics || triNaics(item);
     const facilityType = facilityTypeForNaics(naics);
-    const triCategory = item.industry_sector || (naics ? `NAICS ${naics}` : 'EPA TRI active industrial facility');
+    const triCategory = triProfile?.industrySector || item.industry_sector || (naics ? `NAICS ${naics}` : 'EPA TRI active industrial facility');
     const record: Partial<Prospect> = {
       name: item.facility_name || 'Unnamed EPA TRI facility', facility_type: facilityType, source_category: `EPA TRI active industrial facility · ${triCategory}`,
       address: item.street_address ?? null, city: item.city_name ?? null, state: item.state_abbr ?? 'PA', postal_code: item.zip_code ?? null,
@@ -139,7 +147,10 @@ export function normalizePublicIndustrialRecords(
       parent_co_name: item.parent_co_name, standardized_parent_company: item.standardized_parent_company,
       fac_closed_ind: item.fac_closed_ind, primary_naics_code: naics,
       naics_code: item.naics_code, industry_sector_code: item.industry_sector_code,
-      industry_sector: item.industry_sector, production_ratio_or_activity_index: item.production_ratio_or_activity_index,
+      industry_sector: triProfile?.industrySector || item.industry_sector,
+      production_ratio_or_activity_index: triProfile?.productionRatio ?? item.production_ratio_or_activity_index,
+      reported_production_waste_lbs: triProfile?.productionWasteLbs ?? null,
+      tri_reporting_year: triProfile ? 2024 : null,
     });
   }
 
@@ -152,14 +163,14 @@ export function normalizePublicIndustrialRecords(
     sourceCounts: {
       ghgrp: directEmitters.length,
       tri: activeTri.length,
-      triNaics: enrichment.triNaicsByFacilityId?.size,
+      triProfiles: enrichment.triProfilesByFacilityId?.size,
       ghgrpEmissions: enrichment.ghgrpEmissionsByFacilityId?.size,
     },
   };
 }
 
 const EPA_TIMEOUT_MS = 12_000;
-const MAX_EPA_CONCURRENCY = 24;
+const MAX_EPA_CONCURRENCY = 8;
 
 async function fetchJson<T>(url: string): Promise<T | null> {
   try {
@@ -185,19 +196,89 @@ async function mapConcurrent<T, R>(items: T[], work: (item: T) => Promise<R>): P
   return results;
 }
 
-/** EPA publishes TRI primary NAICS separately from its facility table. */
-async function fetchTriPrimaryNaics(tri: TriFacility[]): Promise<Map<string, string>> {
-  const facilityIds = [...new Set(tri.map((item) => String(item.tri_facility_id ?? '').trim()).filter(Boolean))];
-  const responses = await mapConcurrent(facilityIds, async (facilityId) => {
-    const url = `https://data.epa.gov/efservice/tri_submission_naics/TRI_FACILITY_ID/=/${encodeURIComponent(facilityId)}/PRIMARY_IND/=/1/ROWS/0:49/JSON`;
-    return { facilityId, rows: await fetchJson<TriNaicsRecord[]>(url) };
-  });
-  const result = new Map<string, string>();
-  for (const { facilityId, rows } of responses) {
-    const naics = rows?.find((row) => String(row.primary_ind ?? '') === '1' && row.naics_code)?.naics_code;
-    if (naics) result.set(facilityId, String(naics));
+function parseCsvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let value = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '"') {
+      if (inQuotes && text[index + 1] === '"') {
+        value += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (character === ',' && !inQuotes) {
+      row.push(value);
+      value = '';
+    } else if ((character === '\n' || character === '\r') && !inQuotes) {
+      if (character === '\r' && text[index + 1] === '\n') index += 1;
+      row.push(value);
+      if (row.some((cell) => cell.length > 0)) rows.push(row);
+      row = [];
+      value = '';
+    } else {
+      value += character;
+    }
   }
-  return result;
+  if (value.length > 0 || row.length > 0) {
+    row.push(value);
+    rows.push(row);
+  }
+  return rows;
+}
+
+const csvNumber = (value: string | undefined) => {
+  const parsed = Number(String(value ?? '').replaceAll(',', '').trim());
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+/**
+ * Retrieves the EPA's annual Pennsylvania TRI Basic file once, then keeps only
+ * the facility IDs in our active physical-site universe. TRI repeats a facility
+ * on multiple chemical rows, so production-related quantities are summed.
+ */
+async function fetchPennsylvaniaTriBulkProfiles(tri: TriFacility[]): Promise<Map<string, TriBulkProfile>> {
+  const facilityIds = new Set(tri.map((item) => String(item.tri_facility_id ?? '').trim()).filter(Boolean));
+  if (!facilityIds.size) return new Map();
+
+  try {
+    const response = await fetch(triBulkUrl, { signal: AbortSignal.timeout(45_000) });
+    if (!response.ok) return new Map();
+    const rows = parseCsvRows(await response.text());
+    const [headers, ...data] = rows;
+    if (!headers) return new Map();
+    const indexByHeader = new Map(headers.map((header, index) => [header.trim(), index]));
+    const column = (name: string) => indexByHeader.get(name);
+    const triIdColumn = column('2. TRIFD');
+    const naicsColumn = column('30. PRIMARY NAICS');
+    const sectorColumn = column('23. INDUSTRY SECTOR');
+    const productionWasteColumn = column('119. PRODUCTION WSTE (8.1-8.7)');
+    const productionRatioColumn = column('122. 8.9 - PRODUCTION RATIO') ?? column('121. PROD_RATIO_OR_ ACTIVITY');
+    if (triIdColumn === undefined) return new Map();
+
+    const profiles = new Map<string, TriBulkProfile>();
+    for (const row of data) {
+      const facilityId = row[triIdColumn]?.trim();
+      if (!facilityId || !facilityIds.has(facilityId)) continue;
+      const existing = profiles.get(facilityId) ?? { naics: '', industrySector: null, productionWasteLbs: 0, productionRatio: null };
+      const naics = naicsColumn === undefined ? '' : row[naicsColumn]?.trim() ?? '';
+      const sector = sectorColumn === undefined ? '' : row[sectorColumn]?.trim() ?? '';
+      const ratio = productionRatioColumn === undefined ? 0 : csvNumber(row[productionRatioColumn]);
+      profiles.set(facilityId, {
+        naics: existing.naics || naics,
+        industrySector: existing.industrySector || sector || null,
+        productionWasteLbs: existing.productionWasteLbs + (productionWasteColumn === undefined ? 0 : Math.max(0, csvNumber(row[productionWasteColumn]))),
+        productionRatio: Math.max(existing.productionRatio ?? 0, ratio) || null,
+      });
+    }
+    return profiles;
+  } catch {
+    return new Map();
+  }
 }
 
 /** GHGRP's annual reported emissions are stored in an EPA fact table. */
@@ -231,9 +312,9 @@ export async function fetchPennsylvaniaPublicIndustrialRecords(): Promise<Public
   const triFacilities = Array.isArray(tri) ? tri : [];
   const directEmitters = ghgrpFacilities.filter((item) => item.facility_types === 'Direct Emitter' && usableCoordinate(item.latitude, item.longitude));
   const activeTri = triFacilities.filter((item) => item.fac_closed_ind !== '1' && usableCoordinate(item.pref_latitude, item.pref_longitude));
-  const [triNaicsByFacilityId, ghgrpEmissionsByFacilityId] = await Promise.all([
-    fetchTriPrimaryNaics(activeTri),
+  const [triProfilesByFacilityId, ghgrpEmissionsByFacilityId] = await Promise.all([
+    fetchPennsylvaniaTriBulkProfiles(activeTri),
     fetchGhgrpReportedEmissions(directEmitters),
   ]);
-  return normalizePublicIndustrialRecords(ghgrpFacilities, triFacilities, { triNaicsByFacilityId, ghgrpEmissionsByFacilityId });
+  return normalizePublicIndustrialRecords(ghgrpFacilities, triFacilities, { triProfilesByFacilityId, ghgrpEmissionsByFacilityId });
 }

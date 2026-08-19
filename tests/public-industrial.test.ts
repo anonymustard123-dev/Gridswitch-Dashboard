@@ -34,7 +34,7 @@ describe('public industrial pipeline', () => {
     expect((result.rows[0].public_records_raw as { tri: { primary_naics_code: string } }).tri.primary_naics_code).toBe('311611');
   });
 
-  it('joins EPA submission NAICS and annual GHGRP emissions before scoring', () => {
+  it('joins bulk TRI profile data and annual GHGRP emissions before scoring', () => {
     const result = normalizePublicIndustrialRecords([
       {
         facility_id: 9, facility_name: 'Steel Site', latitude: 40.1, longitude: -79.9,
@@ -44,7 +44,9 @@ describe('public industrial pipeline', () => {
       tri_facility_id: 'PATRI009', facility_name: 'Chemical Site', street_address: '9 Plant Way', city_name: 'Erie', state_abbr: 'PA', zip_code: '16501',
       pref_latitude: 42.1, pref_longitude: 80.1, fac_closed_ind: '0',
     }], {
-      triNaicsByFacilityId: new Map([['PATRI009', '325110']]),
+      triProfilesByFacilityId: new Map([['PATRI009', {
+        naics: '325110', industrySector: 'Chemical manufacturing', productionWasteLbs: 12_345_678, productionRatio: 1.2,
+      }]]),
       ghgrpEmissionsByFacilityId: new Map([['9', { emissions: 512_345, year: 2023 }]]),
     });
 
@@ -53,6 +55,8 @@ describe('public industrial pipeline', () => {
     expect(ghgrp.latest_reported_emissions).toBe(512_345);
     expect(ghgrp.emissions_reporting_year).toBe(2023);
     expect(tri.primary_naics_code).toBe('325110');
+    expect(tri.reported_production_waste_lbs).toBe(12_345_678);
+    expect(tri.tri_reporting_year).toBe(2024);
     expect(result.rows.find((row) => row.name === 'Chemical Site')?.facility_type).toBe('manufacturing');
   });
 

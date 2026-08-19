@@ -54,4 +54,15 @@ describe('microgrid opportunity profile', () => {
     expect(profile.operatingDetail).toContain('600,000');
     expect(profile.operatingDetail).toContain('2023');
   });
+
+  it('uses disclosed TRI production-related reporting as a modest operating-scale signal', () => {
+    const profile = microgridProfile({
+      id: 'tri-intensity', provider: 'public_pipeline', name: 'TRI Site', facility_type: 'manufacturing',
+      enrichment_status: 'pending', prospect_status: 'new', epa_programs: ['TRI'],
+      public_records_raw: { tri: { primary_naics_code: '311611', reported_production_waste_lbs: 12_500_000, tri_reporting_year: 2024 } },
+    });
+    expect(profile.operatingPoints).toBe(18);
+    expect(profile.operatingDetail).toContain('12,500,000');
+    expect(profile.operatingDetail).toContain('2024');
+  });
 });
