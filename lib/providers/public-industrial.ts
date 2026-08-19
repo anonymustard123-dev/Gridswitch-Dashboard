@@ -16,6 +16,16 @@ type TriFacility = {
   primary_naics_code?: string | null; naics_code?: string | null; industry_sector_code?: string | null; industry_sector?: string | null;
   production_ratio_or_activity_index?: number | string | null;
 };
+type TriNaicsRecord = {
+  tri_facility_id?: string;
+  naics_code?: string | null;
+  primary_ind?: string | null;
+};
+type GhgrpEmissionRecord = {
+  facility_id?: number | string;
+  year?: number | string;
+  co2e_emission?: number | string | null;
+};
 
 const timeoutFetch = (url: string) => fetch(url, { signal: AbortSignal.timeout(25_000) });
 const ghgrpUrl = 'https://data.epa.gov/efservice/PUB_DIM_FACILITY/STATE/=/PA/ROWS/0:999/JSON';
@@ -25,8 +35,13 @@ const usableCoordinate = (latitude?: number | null, longitude?: number | null) =
 
 export interface PublicIndustrialImport {
   rows: Partial<Prospect>[];
-  sourceCounts: { ghgrp: number; tri: number };
+  sourceCounts: { ghgrp: number; tri: number; triNaics?: number; ghgrpEmissions?: number };
 }
+
+export type PublicIndustrialEnrichment = {
+  triNaicsByFacilityId?: Map<string, string>;
+  ghgrpEmissionsByFacilityId?: Map<string, { emissions: number; year: number }>;
+};
 
 const triNaics = (item: TriFacility) => item.primary_naics_code || item.naics_code || item.industry_sector_code || null;
 
@@ -34,7 +49,11 @@ const triNaics = (item: TriFacility) => item.primary_naics_code || item.naics_co
  * Builds a prospect universe from public facility records rather than trying
  * to prove a commercial-directory listing is industrial after the fact.
  */
-export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: TriFacility[]): PublicIndustrialImport {
+export function normalizePublicIndustrialRecords(
+  ghgrp: GhgrpFacility[],
+  tri: TriFacility[],
+  enrichment: PublicIndustrialEnrichment = {},
+): PublicIndustrialImport {
   const bySite = new Map<string, Partial<Prospect>>();
   const add = (key: string, record: Partial<Prospect>, source: 'ghgrp' | 'tri', raw: unknown) => {
     const current = bySite.get(key);
@@ -70,6 +89,7 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
     const frsId = String(item.frs_id ?? '').trim();
     const key = frsId ? `frs:${frsId}` : `ghgrp:${item.eggrt_facility_id ?? item.facility_id}`;
     const facilityType = facilityTypeForNaics(item.naics_code);
+    const reportedScale = enrichment.ghgrpEmissionsByFacilityId?.get(String(item.facility_id ?? item.eggrt_facility_id ?? ''));
     const sourceCategory = `EPA GHGRP direct emitter${item.reported_industry_types ? ` · industry codes ${item.reported_industry_types}` : ''}${item.reported_subparts ? ` · subparts ${item.reported_subparts}` : ''}`;
     const record: Partial<Prospect> = {
       name: item.facility_name || 'Unnamed EPA GHGRP facility', facility_type: facilityType, source_category: sourceCategory,
@@ -88,6 +108,8 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
       reported_total_emissions: item.reported_total_emissions,
       total_reported_emissions: item.total_reported_emissions,
       total_co2e_emissions: item.total_co2e_emissions,
+      latest_reported_emissions: reportedScale?.emissions ?? null,
+      emissions_reporting_year: reportedScale?.year ?? null,
     });
   }
 
@@ -97,7 +119,8 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
     const triId = String(item.tri_facility_id ?? '').trim();
     if (!triId) continue;
     const key = frsId ? `frs:${frsId}` : `tri:${triId}`;
-    const naics = triNaics(item);
+    // TRI primary NAICS is joined from EPA's submission-NAICS table when available.
+    const naics = enrichment.triNaicsByFacilityId?.get(triId) || triNaics(item);
     const facilityType = facilityTypeForNaics(naics);
     const triCategory = item.industry_sector || (naics ? `NAICS ${naics}` : 'EPA TRI active industrial facility');
     const record: Partial<Prospect> = {
@@ -114,7 +137,7 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
     add(key, record, 'tri', {
       tri_facility_id: item.tri_facility_id, epa_registry_id: item.epa_registry_id,
       parent_co_name: item.parent_co_name, standardized_parent_company: item.standardized_parent_company,
-      fac_closed_ind: item.fac_closed_ind, primary_naics_code: item.primary_naics_code,
+      fac_closed_ind: item.fac_closed_ind, primary_naics_code: naics,
       naics_code: item.naics_code, industry_sector_code: item.industry_sector_code,
       industry_sector: item.industry_sector, production_ratio_or_activity_index: item.production_ratio_or_activity_index,
     });
@@ -124,7 +147,77 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
     const evidence = { facilityType: row.facility_type, epaFrsId: row.epa_frs_id, epaGhgrpMatch: row.epa_ghgrp_match };
     return { ...row, evidence_score: evidenceScore(evidence), evidence_tier: evidenceTier(evidence) };
   });
-  return { rows, sourceCounts: { ghgrp: directEmitters.length, tri: activeTri.length } };
+  return {
+    rows,
+    sourceCounts: {
+      ghgrp: directEmitters.length,
+      tri: activeTri.length,
+      triNaics: enrichment.triNaicsByFacilityId?.size,
+      ghgrpEmissions: enrichment.ghgrpEmissionsByFacilityId?.size,
+    },
+  };
+}
+
+const EPA_TIMEOUT_MS = 12_000;
+const MAX_EPA_CONCURRENCY = 24;
+
+async function fetchJson<T>(url: string): Promise<T | null> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(EPA_TIMEOUT_MS) });
+    if (!response.ok) return null;
+    const body = await response.json() as T | { value?: T };
+    return (body && typeof body === 'object' && 'value' in body ? body.value : body) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function mapConcurrent<T, R>(items: T[], work: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(MAX_EPA_CONCURRENCY, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await work(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/** EPA publishes TRI primary NAICS separately from its facility table. */
+async function fetchTriPrimaryNaics(tri: TriFacility[]): Promise<Map<string, string>> {
+  const facilityIds = [...new Set(tri.map((item) => String(item.tri_facility_id ?? '').trim()).filter(Boolean))];
+  const responses = await mapConcurrent(facilityIds, async (facilityId) => {
+    const url = `https://data.epa.gov/efservice/tri_submission_naics/TRI_FACILITY_ID/=/${encodeURIComponent(facilityId)}/PRIMARY_IND/=/1/ROWS/0:49/JSON`;
+    return { facilityId, rows: await fetchJson<TriNaicsRecord[]>(url) };
+  });
+  const result = new Map<string, string>();
+  for (const { facilityId, rows } of responses) {
+    const naics = rows?.find((row) => String(row.primary_ind ?? '') === '1' && row.naics_code)?.naics_code;
+    if (naics) result.set(facilityId, String(naics));
+  }
+  return result;
+}
+
+/** GHGRP's annual reported emissions are stored in an EPA fact table. */
+async function fetchGhgrpReportedEmissions(ghgrp: GhgrpFacility[]): Promise<Map<string, { emissions: number; year: number }>> {
+  const ids = [...new Set(ghgrp.map((item) => String(item.facility_id ?? item.eggrt_facility_id ?? '').trim()).filter(Boolean))];
+  const responses = await mapConcurrent(ids, async (facilityId) => {
+    const url = `https://data.epa.gov/efservice/PUB_FACTS_SECTOR_GHG_EMISSION/FACILITY_ID/=/${encodeURIComponent(facilityId)}/ROWS/0:499/JSON`;
+    return { facilityId, rows: await fetchJson<GhgrpEmissionRecord[]>(url) };
+  });
+  const result = new Map<string, { emissions: number; year: number }>();
+  for (const { facilityId, rows } of responses) {
+    const years = (rows ?? []).map((row) => Number(row.year)).filter(Number.isFinite);
+    const latestYear = Math.max(...years);
+    if (!Number.isFinite(latestYear)) continue;
+    const emissions = (rows ?? [])
+      .filter((row) => Number(row.year) === latestYear)
+      .reduce((total, row) => total + Math.max(0, Number(row.co2e_emission) || 0), 0);
+    if (emissions > 0) result.set(facilityId, { emissions, year: latestYear });
+  }
+  return result;
 }
 
 export async function fetchPennsylvaniaPublicIndustrialRecords(): Promise<PublicIndustrialImport> {
@@ -134,5 +227,13 @@ export async function fetchPennsylvaniaPublicIndustrialRecords(): Promise<Public
     ghgrpResponse.json() as Promise<GhgrpFacility[]>,
     triResponse.json() as Promise<TriFacility[]>,
   ]);
-  return normalizePublicIndustrialRecords(Array.isArray(ghgrp) ? ghgrp : [], Array.isArray(tri) ? tri : []);
+  const ghgrpFacilities = Array.isArray(ghgrp) ? ghgrp : [];
+  const triFacilities = Array.isArray(tri) ? tri : [];
+  const directEmitters = ghgrpFacilities.filter((item) => item.facility_types === 'Direct Emitter' && usableCoordinate(item.latitude, item.longitude));
+  const activeTri = triFacilities.filter((item) => item.fac_closed_ind !== '1' && usableCoordinate(item.pref_latitude, item.pref_longitude));
+  const [triNaicsByFacilityId, ghgrpEmissionsByFacilityId] = await Promise.all([
+    fetchTriPrimaryNaics(activeTri),
+    fetchGhgrpReportedEmissions(directEmitters),
+  ]);
+  return normalizePublicIndustrialRecords(ghgrpFacilities, triFacilities, { triNaicsByFacilityId, ghgrpEmissionsByFacilityId });
 }

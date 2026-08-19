@@ -88,6 +88,8 @@ type PublicRaw = {
     reported_total_emissions?: number | string | null;
     total_reported_emissions?: number | string | null;
     total_co2e_emissions?: number | string | null;
+    latest_reported_emissions?: number | string | null;
+    emissions_reporting_year?: number | string | null;
   };
   tri?: {
     parent_co_name?: string | null;
@@ -157,7 +159,7 @@ export function reportedParentCompany(prospect: Prospect): string | null {
 }
 
 function ghgrpEmissions(ghgrp: PublicRaw['ghgrp']) {
-  return numberOrZero(ghgrp?.reported_total_emissions) || numberOrZero(ghgrp?.total_reported_emissions) || numberOrZero(ghgrp?.total_co2e_emissions);
+  return numberOrZero(ghgrp?.latest_reported_emissions) || numberOrZero(ghgrp?.reported_total_emissions) || numberOrZero(ghgrp?.total_reported_emissions) || numberOrZero(ghgrp?.total_co2e_emissions);
 }
 
 export function microgridProfile(prospect: Prospect, weights: ScoreWeights = DEFAULT_SCORE_WEIGHTS): MicrogridProfile {
@@ -195,7 +197,7 @@ export function microgridProfile(prospect: Prospect, weights: ScoreWeights = DEF
   const fit: MicrogridFit = score >= 75 ? 'exceptional' : score >= 60 ? 'strong' : score >= 45 ? 'qualified' : score >= 28 ? 'developing' : 'discovery';
   const naics = ghgrp?.naics_code || triNaics;
   const operatingDetail = isGhgrp
-    ? emissions ? `GHGRP direct emitter; ${Math.round(emissions).toLocaleString()} reported metric tons CO₂e` : 'GHGRP direct-emitter facility record'
+    ? emissions ? `GHGRP direct emitter; ${Math.round(emissions).toLocaleString()} reported metric tons CO₂e${ghgrp?.emissions_reporting_year ? ` in ${ghgrp.emissions_reporting_year}` : ''}` : 'GHGRP direct-emitter facility record'
     : isTri ? triProduction ? `TRI industrial reporting; production/activity indicator ${triProduction}` : 'TRI industrial-facility record'
     : hasFrsOrDep ? 'EPA FRS or Pennsylvania DEP operating-site record' : 'No qualifying public operating record';
   const scaleDetail = buildingArea

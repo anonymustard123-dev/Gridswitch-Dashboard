@@ -36,6 +36,7 @@ const publicRecordFacts = (prospect: Prospect) => {
     ghgrp?.facility_types ? `GHGRP facility type: ${ghgrp.facility_types}` : null,
     ghgrp?.reported_industry_types ? `GHGRP reported industry codes: ${ghgrp.reported_industry_types}` : null,
     ghgrp?.reported_subparts ? `GHGRP reporting subparts: ${ghgrp.reported_subparts}` : null,
+    ghgrp?.latest_reported_emissions ? `GHGRP reported emissions: ${Number(ghgrp.latest_reported_emissions).toLocaleString()} metric tons CO₂e${ghgrp.emissions_reporting_year ? ` (${ghgrp.emissions_reporting_year})` : ''}` : null,
     ghgrp?.parent_company ? `Reported parent company: ${ghgrp.parent_company}` : null,
     tri ? `EPA TRI status: active industrial facility record` : null,
     tri?.tri_facility_id ? `TRI facility ID: ${tri.tri_facility_id}` : null,
@@ -156,7 +157,7 @@ export default function Dashboard() {
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.error || 'Public-record import failed.');
       const sources = result?.sourceCounts
-        ? ` (${result.sourceCounts.ghgrp} GHGRP records, ${result.sourceCounts.tri} TRI records before site merging)`
+        ? ` (${result.sourceCounts.ghgrp} GHGRP records, ${result.sourceCounts.tri} TRI records; ${result.sourceCounts.triNaics ?? 0} NAICS matches; ${result.sourceCounts.ghgrpEmissions ?? 0} reported-emissions matches before site merging)`
         : '';
       setNotice(`Public industrial pipeline refreshed: ${result.imported ?? 0} physical sites${sources}.`);
       await loadProspects();

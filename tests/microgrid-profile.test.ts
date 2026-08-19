@@ -43,4 +43,15 @@ describe('microgrid opportunity profile', () => {
     expect(profile.scalePoints).toBe(0);
     expect(profile.scaleDetail).toContain('No reliable');
   });
+
+  it('uses reported GHGRP emissions as a scale signal without treating them as electricity use', () => {
+    const profile = microgridProfile({
+      id: 'reported-emissions', provider: 'public_pipeline', name: 'Large Plant', facility_type: 'manufacturing',
+      enrichment_status: 'pending', prospect_status: 'new', epa_ghgrp_match: true,
+      public_records_raw: { ghgrp: { naics_code: '325110', latest_reported_emissions: 600_000, emissions_reporting_year: 2023 } },
+    });
+    expect(profile.operatingPoints).toBe(25);
+    expect(profile.operatingDetail).toContain('600,000');
+    expect(profile.operatingDetail).toContain('2023');
+  });
 });
