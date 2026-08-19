@@ -7,7 +7,7 @@ import {
   prospectSignals,
   type ProspectSignalTier,
 } from '@/lib/prospect-signals';
-import { DEFAULT_SCORE_WEIGHTS, microgridFitLabels, microgridProfile, type ScoreWeights } from '@/lib/microgrid-profile';
+import { DEFAULT_SCORE_WEIGHTS, microgridFitLabels, microgridProfile, SCORE_METRIC_GUIDES, type ScoreWeights } from '@/lib/microgrid-profile';
 import type { AiFacilityResearch, Prospect } from '@/lib/types';
 
 const label = (value: string | null | undefined) =>
@@ -86,6 +86,16 @@ function AiResearch({ research }: { research: AiFacilityResearch }) {
   );
 }
 
+function ScoreGuide({ metric, weights, onClose }: { metric: keyof ScoreWeights | 'all'; weights: ScoreWeights; onClose: () => void }) {
+  const guides = metric === 'all' ? weightControls : weightControls.filter((item) => item.key === metric);
+  return <div className="fixed inset-0 z-30 grid place-items-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label="Score card breakdown">
+    <section className="score-guide card max-h-[85vh] w-full max-w-3xl overflow-auto p-6 shadow-2xl">
+      <div className="flex items-start justify-between gap-5"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">GridSwitch scorecard</p><h2 className="mt-1 text-2xl font-bold text-slate-950">{metric === 'all' ? 'How every score is calculated' : SCORE_METRIC_GUIDES[metric].title}</h2><p className="mt-2 text-sm text-slate-600">These rules apply consistently to every facility. The adjusted maximum reflects the current weight setting.</p></div><button className="control shrink-0" onClick={onClose}>Close</button></div>
+      <div className="mt-6 space-y-4">{guides.map((item) => { const guide = SCORE_METRIC_GUIDES[item.key]; return <article className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4" key={item.key}><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-slate-950">{guide.title}</h3><p className="mt-1 text-sm text-slate-600">{guide.description}</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800 ring-1 ring-emerald-200">Max {weights[item.key]} pts</span></div><ul className="mt-4 space-y-2 text-sm text-slate-700">{guide.rules.map((rule) => <li key={rule}>• {rule}</li>)}</ul></article>; })}</div>
+    </section>
+  </div>;
+}
+
 export default function Dashboard() {
   const [all, setAll] = useState<Prospect[]>([]);
   const [selected, setSelected] = useState<Prospect | null>(null);
@@ -96,6 +106,8 @@ export default function Dashboard() {
   const [showScreening, setShowScreening] = useState(false);
   const [showWeights, setShowWeights] = useState(false);
   const [scoreWeights, setScoreWeights] = useState<ScoreWeights>(DEFAULT_SCORE_WEIGHTS);
+  const [scoreGuideMetric, setScoreGuideMetric] = useState<keyof ScoreWeights | 'all' | null>(null);
+  const [darkMode, setDarkMode] = useState(false);
   const [demo, setDemo] = useState(false);
   const [searching, setSearching] = useState(false);
   const [importingPublic, setImportingPublic] = useState(false);
@@ -221,21 +233,19 @@ export default function Dashboard() {
   const selectedResearchError = selected ? researchErrors[selected.id] || selected.ai_error : null;
 
   return (
-    <main className="min-h-screen">
+    <main className={`min-h-screen ${darkMode ? 'dashboard-dark' : ''}`}>
       <nav className="border-b border-emerald-100 bg-white px-5 py-3 shadow-sm">
         <div className="mx-auto flex max-w-[1800px] items-center justify-between">
-          <div className="flex items-center gap-5"><img className="h-11 w-auto" src="/gridswitch-logo.png" alt="GridSwitch" /><span className="hidden border-l border-slate-200 pl-5 text-sm font-semibold text-slate-600 sm:inline">Industrial Site Priorities</span></div>
-          {demo && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">Demo data</span>}
+          <img className="h-11 w-auto" src="/gridswitch-logo.png" alt="GridSwitch" />
+          <div className="flex items-center gap-2"><button className="control text-sm font-semibold" onClick={() => setDarkMode((enabled) => !enabled)}>{darkMode ? 'Light mode' : 'Dark mode'}</button>{demo && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">Demo data</span>}</div>
         </div>
       </nav>
       <div className="mx-auto max-w-[1800px] p-5 md:p-7">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">GridSwitch pipeline</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Industrial Site Priorities</h1>
-            <p className="mt-1 max-w-3xl text-sm text-slate-600">A practical shortlist of operating industrial sites. Rankings use public records and visible site facts, not estimated utility bills.</p>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">GridSwitch Prospecting Dashboard</h1>
           </div>
-          <button className="control border-emerald-200 font-semibold text-emerald-800" onClick={() => setShowWeights((open) => !open)}>{showWeights ? 'Close score settings' : 'Adjust score weights'}</button>
+          <div className="flex flex-wrap gap-2"><button className="control border-emerald-200 font-semibold text-emerald-800" onClick={() => setScoreGuideMetric('all')}>Scorecard breakdown</button><button className="control border-emerald-200 font-semibold text-emerald-800" onClick={() => setShowWeights((open) => !open)}>{showWeights ? 'Close score settings' : 'Adjust score weights'}</button></div>
         </div>
 
         {showWeights && <section className="card mb-4 border-emerald-100 bg-emerald-50/50 p-4">
@@ -289,12 +299,12 @@ export default function Dashboard() {
             {selectedProfile && (() => {
               const profile = selectedProfile;
               return [
-                ['What this facility does', 'Industry type. Energy-heavy industrial processes score higher.', profile.processDetail, `${profile.processPoints}/${scoreWeights.process}`],
-                ['Proof it is operating', 'EPA records showing this is an active industrial site.', profile.operatingDetail, `${profile.operatingPoints}/${scoreWeights.operating}`],
-                ['Physical site size', 'Known building area or disclosed industrial process reporting.', profile.scaleDetail, `${profile.scalePoints}/${scoreWeights.scale}`],
-                ['Public-record match', 'How many public records point to this exact facility.', profile.evidenceDetail, `${profile.evidencePoints}/${scoreWeights.evidence}`],
-                ['Company behind the site', 'Named parent company or a direct facility contact.', profile.corporateDetail, `${profile.corporatePoints}/${scoreWeights.corporate}`],
-              ].map(([title, description, detail, value]) => <div className="rounded-xl border border-slate-100 bg-slate-50 p-4" key={title}><div className="flex items-start justify-between gap-3"><div><div className="font-semibold text-slate-900">{title}</div><p className="mt-1 text-xs text-slate-500">{description}</p></div><b className="whitespace-nowrap text-emerald-800">{value}</b></div><div className="mt-3 border-t border-slate-200 pt-3 text-sm font-medium text-slate-700">Your data: {detail}</div></div>);
+                { key: 'process' as const, detail: profile.processDetail, value: `${profile.processPoints}/${scoreWeights.process}` },
+                { key: 'operating' as const, detail: profile.operatingDetail, value: `${profile.operatingPoints}/${scoreWeights.operating}` },
+                { key: 'scale' as const, detail: profile.scaleDetail, value: `${profile.scalePoints}/${scoreWeights.scale}` },
+                { key: 'evidence' as const, detail: profile.evidenceDetail, value: `${profile.evidencePoints}/${scoreWeights.evidence}` },
+                { key: 'corporate' as const, detail: profile.corporateDetail, value: `${profile.corporatePoints}/${scoreWeights.corporate}` },
+              ].map((item) => { const guide = SCORE_METRIC_GUIDES[item.key]; return <button className="score-metric-card rounded-xl border border-slate-100 bg-slate-50 p-4 text-left" onClick={() => setScoreGuideMetric(item.key)} key={item.key}><div className="flex items-start justify-between gap-3"><div><div className="font-semibold text-slate-900">{guide.title}</div><p className="mt-1 text-xs text-slate-500">{guide.description}</p></div><b className="whitespace-nowrap text-emerald-800">{item.value}</b></div><div className="mt-3 border-t border-slate-200 pt-3 text-sm font-medium text-slate-700">{item.detail}</div><div className="mt-3 text-xs font-semibold text-emerald-700">View scoring rules →</div></button>; });
             })()}
           </section>
           {selectedProfile && <div className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><b>Pipeline result:</b> {microgridFitLabels[selectedProfile.fit]}</div>}
@@ -324,6 +334,7 @@ export default function Dashboard() {
             {selected.website && <a className="control" target="_blank" rel="noreferrer" href={selected.website}>Open website</a>}
           </div>
         </aside>}
+        {scoreGuideMetric && <ScoreGuide metric={scoreGuideMetric} weights={scoreWeights} onClose={() => setScoreGuideMetric(null)} />}
       </div>
     </main>
   );

@@ -35,6 +35,60 @@ export const DEFAULT_SCORE_WEIGHTS: ScoreWeights = {
   corporate: 11,
 };
 
+export const SCORE_METRIC_GUIDES: Record<keyof ScoreWeights, { title: string; description: string; rules: string[] }> = {
+  process: {
+    title: 'What this facility does',
+    description: 'Industry type. More energy-intensive industrial processes earn more points.',
+    rules: [
+      '30: Data centers; paper, chemical, petroleum, or coal-products manufacturing',
+      '24–28: Metals, mineral products, food, plastics, rubber, or similar process manufacturing',
+      '17–21: Industrial manufacturing, machinery, automotive, beverage, wood, or fabricated metals',
+      '9–13: Warehousing, distribution, or lower-intensity commercial operations',
+      '8: Industrial operation with no detailed industry classification',
+    ],
+  },
+  operating: {
+    title: 'Proof it is operating',
+    description: 'Public EPA records that confirm the site is an active industrial operation.',
+    rules: [
+      '34: EPA GHGRP direct-emitter facility record',
+      '23: EPA TRI industrial-facility record',
+      '14: EPA Registry or PA DEP operating-site record',
+      '0: No public operating record found yet',
+    ],
+  },
+  scale: {
+    title: 'Physical site size',
+    description: 'Known building area plus industrial-process reporting. This is not a load estimate.',
+    rules: [
+      '15: Qualifying GHGRP process subpart + at least 500,000 sq ft of known building area',
+      '10: At least 500,000 sq ft of known building area',
+      '6: 100,000–499,999 sq ft of known building area',
+      '5: Qualifying GHGRP industrial-process subpart, with no large building-area record',
+      '0: No qualifying process subpart or known building area',
+    ],
+  },
+  evidence: {
+    title: 'Public-record match',
+    description: 'How many public sources independently point to this exact facility.',
+    rules: [
+      '5: EPA Registry match',
+      '+3: Pennsylvania DEP facility match',
+      '+2: EPA TRI facility record',
+      'Maximum: 10 points',
+    ],
+  },
+  corporate: {
+    title: 'Company behind the site',
+    description: 'A named parent company or a way to contact the facility.',
+    rules: [
+      '11: Reported parent company available',
+      '5: Direct facility website or phone available',
+      '0: No parent company or direct contact found',
+    ],
+  },
+};
+
 type PublicRaw = {
   ghgrp?: {
     naics_code?: string | null;
