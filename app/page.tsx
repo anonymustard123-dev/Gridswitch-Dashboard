@@ -7,7 +7,7 @@ import {
   prospectSignals,
   type ProspectSignalTier,
 } from '@/lib/prospect-signals';
-import { DEFAULT_SCORE_WEIGHTS, microgridFitLabels, microgridProfile, SCORE_METRIC_GUIDES, type ScoreWeights } from '@/lib/microgrid-profile';
+import { DEFAULT_SCORE_WEIGHTS, microgridFitLabels, microgridProfile, reportedParentCompany, SCORE_METRIC_GUIDES, type ScoreWeights } from '@/lib/microgrid-profile';
 import type { AiFacilityResearch, Prospect } from '@/lib/types';
 
 const label = (value: string | null | undefined) =>
@@ -15,11 +15,10 @@ const label = (value: string | null | undefined) =>
 const signalFor = (prospect: Prospect, weights?: ScoreWeights) => prospectSignals(prospect, weights);
 
 const weightControls: Array<{ key: keyof ScoreWeights; title: string; help: string }> = [
-  { key: 'process', title: 'What the facility does', help: 'Industry type. Energy-heavy industrial processes score higher.' },
-  { key: 'operating', title: 'Proof it is operating', help: 'EPA records showing an active industrial facility.' },
-  { key: 'scale', title: 'Physical site size', help: 'Known building area and GHGRP process reporting.' },
-  { key: 'evidence', title: 'Public-record match', help: 'How many public records point to this exact location.' },
-  { key: 'corporate', title: 'Company behind the site', help: 'A named parent company or facility contact.' },
+  { key: 'process', title: 'Industry and process fit', help: 'What the facility makes or does. Energy-heavy processes score higher.' },
+  { key: 'operating', title: 'Reported operating scale', help: 'GHGRP and TRI reporting that signals a meaningful industrial operation.' },
+  { key: 'scale', title: 'Physical site evidence', help: 'Only actual building, footprint, or parcel information earns points.' },
+  { key: 'outreach', title: 'Outreach readiness', help: 'A parent company and practical way to contact the facility.' },
 ];
 const shortText = (value: string | null | undefined, words: number) => {
   const clean = (value ?? '').replace(/\s*\(\[[^\]]+\]\([^)]*\)\)/g, '').replace(/\s+/g, ' ').trim();
@@ -40,6 +39,8 @@ const publicRecordFacts = (prospect: Prospect) => {
     ghgrp?.parent_company ? `Reported parent company: ${ghgrp.parent_company}` : null,
     tri ? `EPA TRI status: active industrial facility record` : null,
     tri?.tri_facility_id ? `TRI facility ID: ${tri.tri_facility_id}` : null,
+    tri?.primary_naics_code || tri?.naics_code || tri?.industry_sector_code ? `TRI NAICS: ${tri.primary_naics_code || tri.naics_code || tri.industry_sector_code}` : null,
+    tri?.industry_sector ? `TRI industry sector: ${tri.industry_sector}` : null,
     tri?.parent_co_name && tri.parent_co_name !== 'NA' ? `Reported parent company: ${tri.parent_co_name}` : null,
   ].filter((fact): fact is string => Boolean(fact));
 };
@@ -205,11 +206,10 @@ export default function Dashboard() {
   function exportCsv() {
     const headers = [
       'Facility', 'Address', 'City', 'State', 'Postal code', 'Facility type', 'Pipeline tier', 'Microgrid score',
-      'What the facility does - points', 'What the facility does - weight', 'What the facility does - value',
-      'Proof it is operating - points', 'Proof it is operating - weight', 'Proof it is operating - value',
-      'Physical site size - points', 'Physical site size - weight', 'Physical site size - value',
-      'Public-record match - points', 'Public-record match - weight', 'Public-record match - value',
-      'Company behind the site - points', 'Company behind the site - weight', 'Company behind the site - value',
+      'Industry and process fit - points', 'Industry and process fit - weight', 'Industry and process fit - value',
+      'Reported operating scale - points', 'Reported operating scale - weight', 'Reported operating scale - value',
+      'Physical site evidence - points', 'Physical site evidence - weight', 'Physical site evidence - value',
+      'Outreach readiness - points', 'Outreach readiness - weight', 'Outreach readiness - value',
       'EPA Registry ID', 'EPA programs', 'Building area (sq ft)', 'Parent company / notes', 'Phone', 'Website',
     ];
     const rows = list.map((prospect) => {
@@ -220,8 +220,7 @@ export default function Dashboard() {
         profile.processPoints, scoreWeights.process, profile.processDetail,
         profile.operatingPoints, scoreWeights.operating, profile.operatingDetail,
         profile.scalePoints, scoreWeights.scale, profile.scaleDetail,
-        profile.evidencePoints, scoreWeights.evidence, profile.evidenceDetail,
-        profile.corporatePoints, scoreWeights.corporate, profile.corporateDetail,
+        profile.outreachPoints, scoreWeights.outreach, profile.outreachDetail,
         prospect.epa_frs_id, prospect.epa_programs?.join(', '), prospect.building_sqft, prospect.notes, prospect.phone, prospect.website,
       ].map(csvValue).join(',');
     });
@@ -269,6 +268,22 @@ export default function Dashboard() {
   const selectedPublicFacts = selected ? publicRecordFacts(selected) : [];
   const isResearching = selected ? researchingIds.includes(selected.id) : false;
   const selectedResearchError = selected ? researchErrors[selected.id] || selected.ai_error : null;
+  const selectedAccount = useMemo(() => {
+    if (!selected) return null;
+    const parent = reportedParentCompany(selected);
+    if (!parent) return null;
+    const sites = all
+      .filter((prospect) => reportedParentCompany(prospect)?.toLowerCase() === parent.toLowerCase())
+      .sort((a, b) => signalFor(b, scoreWeights).score - signalFor(a, scoreWeights).score);
+    const recommended = sites[0] ?? selected;
+    return {
+      parent,
+      sites,
+      recommended,
+      prioritySites: sites.filter((prospect) => ['top_priority', 'priority_site'].includes(signalFor(prospect, scoreWeights).tier)).length,
+      bestScore: signalFor(recommended, scoreWeights).score,
+    };
+  }, [all, selected, scoreWeights]);
 
   return (
     <main className={`min-h-screen ${darkMode ? 'dashboard-dark' : ''}`}>
@@ -288,7 +303,7 @@ export default function Dashboard() {
 
         {showWeights && <section className="card mb-4 border-emerald-100 bg-emerald-50/50 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold text-slate-900">Choose what matters most</h2><p className="mt-1 text-sm text-slate-600">Weights change the order of this view only. They do not alter the underlying public data.</p></div><button className="text-sm font-semibold text-emerald-800 underline" onClick={() => setScoreWeights(DEFAULT_SCORE_WEIGHTS)}>Reset defaults</button></div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">{weightControls.map((item) => <label className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-emerald-100" key={item.key}><span className="block text-sm font-semibold text-slate-900">{item.title}</span><span className="mt-1 block min-h-10 text-xs leading-4 text-slate-500">{item.help}</span><span className="mt-3 flex items-center gap-2"><input className="w-full accent-emerald-600" type="range" min="0" max="50" value={scoreWeights[item.key]} onChange={(event) => setScoreWeights((current) => ({ ...current, [item.key]: Number(event.target.value) }))} /><b className="w-10 text-right text-sm text-emerald-800">{scoreWeights[item.key]}</b></span></label>)}</div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">{weightControls.map((item) => <label className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-emerald-100" key={item.key}><span className="block text-sm font-semibold text-slate-900">{item.title}</span><span className="mt-1 block min-h-10 text-xs leading-4 text-slate-500">{item.help}</span><span className="mt-3 flex items-center gap-2"><input className="w-full accent-emerald-600" type="range" min="0" max="50" value={scoreWeights[item.key]} onChange={(event) => setScoreWeights((current) => ({ ...current, [item.key]: Number(event.target.value) }))} /><b className="w-10 text-right text-sm text-emerald-800">{scoreWeights[item.key]}</b></span></label>)}</div>
         </section>}
 
         <div className="card mb-4 flex flex-wrap gap-2 p-3 shadow-sm">
@@ -341,13 +356,18 @@ export default function Dashboard() {
                 { key: 'process' as const, detail: profile.processDetail, value: `${profile.processPoints}/${scoreWeights.process}` },
                 { key: 'operating' as const, detail: profile.operatingDetail, value: `${profile.operatingPoints}/${scoreWeights.operating}` },
                 { key: 'scale' as const, detail: profile.scaleDetail, value: `${profile.scalePoints}/${scoreWeights.scale}` },
-                { key: 'evidence' as const, detail: profile.evidenceDetail, value: `${profile.evidencePoints}/${scoreWeights.evidence}` },
-                { key: 'corporate' as const, detail: profile.corporateDetail, value: `${profile.corporatePoints}/${scoreWeights.corporate}` },
+                { key: 'outreach' as const, detail: profile.outreachDetail, value: `${profile.outreachPoints}/${scoreWeights.outreach}` },
               ].map((item) => { const guide = SCORE_METRIC_GUIDES[item.key]; return <button className="score-metric-card rounded-xl border border-slate-100 bg-slate-50 p-4 text-left" onClick={() => setScoreGuideMetric(item.key)} key={item.key}><div className="flex items-start justify-between gap-3"><div><div className="font-semibold text-slate-900">{guide.title}</div><p className="mt-1 text-xs text-slate-500">{guide.description}</p></div><b className="whitespace-nowrap text-emerald-800">{item.value}</b></div><div className="mt-3 border-t border-slate-200 pt-3 text-sm font-medium text-slate-700">{item.detail}</div><div className="mt-3 text-xs font-semibold text-emerald-700">View scoring rules →</div></button>; });
             })()}
           </section>
           {selectedProfile && <div className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><b>Pipeline result:</b> {microgridFitLabels[selectedProfile.fit]}</div>}
           <p className="mt-3 text-xs text-slate-500">The score ranks disclosed industrial and commercial signals. It does not estimate a facility's electricity load or energy spend.</p>
+          {selectedAccount && <section className="mt-5 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 text-sm text-slate-700">
+            <h3 className="font-semibold text-slate-900">Parent-company opportunity</h3>
+            <p className="mt-1 font-medium text-emerald-900">{selectedAccount.parent}</p>
+            <dl className="mt-3 grid grid-cols-3 gap-2 text-center"><div><dt className="text-xs text-slate-500">Sites found</dt><dd className="mt-1 font-semibold text-slate-900">{selectedAccount.sites.length}</dd></div><div><dt className="text-xs text-slate-500">Priority sites</dt><dd className="mt-1 font-semibold text-slate-900">{selectedAccount.prioritySites}</dd></div><div><dt className="text-xs text-slate-500">Best score</dt><dd className="mt-1 font-semibold text-slate-900">{selectedAccount.bestScore}/100</dd></div></dl>
+            <p className="mt-3 text-xs text-slate-600">Recommended first site: <b>{selectedAccount.recommended.name}</b>{selectedAccount.recommended.city ? `, ${selectedAccount.recommended.city}` : ''}.</p>
+          </section>}
           <section className="mt-5 rounded bg-slate-50 p-4 text-sm text-slate-700">
             <b className="text-slate-900">Recommended next step:</b>{' '}
             {selectedSignals.tier === 'top_priority'

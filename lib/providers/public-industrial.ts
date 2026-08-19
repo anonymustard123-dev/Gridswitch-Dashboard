@@ -7,11 +7,14 @@ type GhgrpFacility = {
   facility_id?: number; facility_name?: string; address1?: string; city?: string; state?: string; zip?: string;
   latitude?: number; longitude?: number; frs_id?: string; eggrt_facility_id?: number; parent_company?: string | null;
   facility_types?: string; reported_industry_types?: string | null; reported_subparts?: string | null; naics_code?: string | null;
+  reported_total_emissions?: number | string | null; total_reported_emissions?: number | string | null; total_co2e_emissions?: number | string | null;
 };
 type TriFacility = {
   tri_facility_id?: string; facility_name?: string; street_address?: string; city_name?: string; state_abbr?: string;
   zip_code?: string; pref_latitude?: number | null; pref_longitude?: number | null; epa_registry_id?: string | null;
-  parent_co_name?: string | null; asgn_public_phone?: string | null; fac_closed_ind?: string;
+  parent_co_name?: string | null; standardized_parent_company?: string | null; asgn_public_phone?: string | null; fac_closed_ind?: string;
+  primary_naics_code?: string | null; naics_code?: string | null; industry_sector_code?: string | null; industry_sector?: string | null;
+  production_ratio_or_activity_index?: number | string | null;
 };
 
 const timeoutFetch = (url: string) => fetch(url, { signal: AbortSignal.timeout(25_000) });
@@ -24,6 +27,8 @@ export interface PublicIndustrialImport {
   rows: Partial<Prospect>[];
   sourceCounts: { ghgrp: number; tri: number };
 }
+
+const triNaics = (item: TriFacility) => item.primary_naics_code || item.naics_code || item.industry_sector_code || null;
 
 /**
  * Builds a prospect universe from public facility records rather than trying
@@ -80,6 +85,9 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
       facility_id: item.facility_id, eggrt_facility_id: item.eggrt_facility_id, facility_types: item.facility_types,
       reported_industry_types: item.reported_industry_types, reported_subparts: item.reported_subparts,
       parent_company: item.parent_company, naics_code: item.naics_code,
+      reported_total_emissions: item.reported_total_emissions,
+      total_reported_emissions: item.total_reported_emissions,
+      total_co2e_emissions: item.total_co2e_emissions,
     });
   }
 
@@ -89,20 +97,26 @@ export function normalizePublicIndustrialRecords(ghgrp: GhgrpFacility[], tri: Tr
     const triId = String(item.tri_facility_id ?? '').trim();
     if (!triId) continue;
     const key = frsId ? `frs:${frsId}` : `tri:${triId}`;
+    const naics = triNaics(item);
+    const facilityType = facilityTypeForNaics(naics);
+    const triCategory = item.industry_sector || (naics ? `NAICS ${naics}` : 'EPA TRI active industrial facility');
     const record: Partial<Prospect> = {
-      name: item.facility_name || 'Unnamed EPA TRI facility', facility_type: 'industrial', source_category: 'EPA TRI active industrial facility',
+      name: item.facility_name || 'Unnamed EPA TRI facility', facility_type: facilityType, source_category: `EPA TRI active industrial facility · ${triCategory}`,
       address: item.street_address ?? null, city: item.city_name ?? null, state: item.state_abbr ?? 'PA', postal_code: item.zip_code ?? null,
       // TRI returns Pennsylvania longitudes without the western-hemisphere sign.
       latitude: Number(item.pref_latitude), longitude: -Math.abs(Number(item.pref_longitude)), phone: item.asgn_public_phone ?? null,
       epa_frs_id: frsId || null, epa_facility_name: item.facility_name ?? null, epa_programs: ['TRI'],
-      epa_match_confidence: 'source record', energy_factor: ENERGY_FACTORS.unknown,
-      opportunity_score: opportunityScore('unknown', null), enrichment_status: 'pending', prospect_status: 'new',
+      epa_match_confidence: 'source record', energy_factor: ENERGY_FACTORS[facilityType] ?? ENERGY_FACTORS.unknown,
+      opportunity_score: opportunityScore(facilityType, null), enrichment_status: 'pending', prospect_status: 'new',
       public_records_verified_at: new Date().toISOString(),
       notes: item.parent_co_name && item.parent_co_name !== 'NA' ? `Reported parent company: ${item.parent_co_name}` : null,
     };
     add(key, record, 'tri', {
       tri_facility_id: item.tri_facility_id, epa_registry_id: item.epa_registry_id,
-      parent_co_name: item.parent_co_name, fac_closed_ind: item.fac_closed_ind,
+      parent_co_name: item.parent_co_name, standardized_parent_company: item.standardized_parent_company,
+      fac_closed_ind: item.fac_closed_ind, primary_naics_code: item.primary_naics_code,
+      naics_code: item.naics_code, industry_sector_code: item.industry_sector_code,
+      industry_sector: item.industry_sector, production_ratio_or_activity_index: item.production_ratio_or_activity_index,
     });
   }
 

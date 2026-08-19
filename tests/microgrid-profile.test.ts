@@ -14,10 +14,10 @@ describe('microgrid opportunity profile', () => {
       public_records_raw: { tri: { parent_co_name: 'NA' } },
     });
 
-    expect(paper.fit).toBe('exceptional');
+    expect(paper.fit).toBe('strong');
     expect(paper.processLabel).toBe('Paper & paper-product manufacturing');
     expect(paper.score).toBeGreaterThan(tri.score);
-    expect(tri.fit).toBe('developing');
+    expect(tri.fit).toBe('discovery');
   });
 
   it('recalculates the score when the user changes category weights', () => {
@@ -27,10 +27,20 @@ describe('microgrid opportunity profile', () => {
       public_records_raw: { ghgrp: { naics_code: '322110', reported_subparts: 'AA,C' } },
     };
     const defaultProfile = microgridProfile(prospect);
-    const operationsFirst = microgridProfile(prospect, { process: 5, operating: 70, scale: 10, evidence: 10, corporate: 5 });
+    const operationsFirst = microgridProfile(prospect, { process: 5, operating: 70, scale: 10, outreach: 15 });
 
     expect(operationsFirst.score).not.toBe(defaultProfile.score);
     expect(operationsFirst.processPoints).toBe(5);
-    expect(operationsFirst.operatingPoints).toBe(70);
+    expect(operationsFirst.operatingPoints).toBe(56);
+  });
+
+  it('does not award physical-site points from a GHGRP reporting subpart', () => {
+    const profile = microgridProfile({
+      id: 'no-size', provider: 'public_pipeline', name: 'Plant', facility_type: 'manufacturing',
+      enrichment_status: 'pending', prospect_status: 'new', epa_ghgrp_match: true,
+      public_records_raw: { ghgrp: { naics_code: '324110', reported_subparts: 'C,Q' } },
+    });
+    expect(profile.scalePoints).toBe(0);
+    expect(profile.scaleDetail).toContain('No reliable');
   });
 });

@@ -21,13 +21,13 @@ describe('prospect signals', () => {
     expect(signals.score).toBeLessThan(28);
   });
 
-  it('calls a direct emitter with multiple public records a high-potential lead', () => {
+  it('keeps an otherwise unclassified direct emitter in the industrial tier', () => {
     const signals = prospectSignals({
       id: 'direct-emitter', provider: 'public_pipeline', name: 'Verified Plant', facility_type: 'manufacturing',
       enrichment_status: 'pending', prospect_status: 'new', epa_frs_id: '110001', pa_dep_facility_id: 'PA-100',
       epa_ghgrp_match: true,
     });
-    expect(signals.tier).toBe('priority_site');
+    expect(signals.tier).toBe('industrial_lead');
     expect(signals.evidenceFacts).toContain('EPA GHGRP direct-emitter facility record');
   });
 
